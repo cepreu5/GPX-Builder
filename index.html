@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="bg" data-app-mode="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GPX конструктор</title>
+<meta name="description" content="Сглобяване на нов маршрут от записани GPX тракове: дубликати, части, изрязване, износ като .gpx и картина за офлайн.">
+<meta name="theme-color" content="#f6f3ec">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='5' fill='none' stroke='%232b5fd9' stroke-width='2.5'/%3E%3C/svg%3E">
+<script>
+  // Режимът се слага преди стиловете, за да няма премигване.
+  (function () {
+    var m = null;
+    try { m = JSON.parse(localStorage.getItem('gpxk.mode')); } catch (e) { /* няма запис */ }
+    if (m !== 'light' && m !== 'dark') m = 'light';
+    document.documentElement.setAttribute('data-app-mode', m);
+  })();
+</script>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<header id="bar" class="bar" aria-label="Горна лента">
+  <div class="bar-row">
+    <span class="logo"><i></i><span class="logo-t">GPX конструктор</span></span>
+    <input id="routeName" class="route-name" type="text" value="Нов маршрут" aria-label="Име на маршрута" spellcheck="false">
+    <form id="searchForm" class="search" role="search">
+      <input id="searchInput" type="search" placeholder="Търси адрес или място" aria-label="Търси адрес или място" autocomplete="off">
+      <div id="searchResults" class="search-results" hidden></div>
+    </form>
+    <span class="sp"></span>
+    <button class="btn pri" data-act="add-tracks" title="Добави .gpx тракове">Добави<span class="wide"> тракове</span></button>
+    <button class="btn wide-only" data-act="picture">Картина</button>
+    <button class="btn wide-only" data-act="export-gpx">Изнеси .gpx</button>
+    <button class="btn" data-act="follow" id="followBtn">Следене</button>
+    <button class="btn wide-only" data-act="save">Запази</button>
+    <button class="btn ico" data-act="to-panel" title="Към числата под картата" aria-label="Към числата под картата">&#8595;</button>
+  </div>
+  <div class="bar-row tools" id="tools">
+    <div class="seg" role="group" aria-label="Режим">
+      <button data-mode="select" class="on" title="Клик върху сегмент го слага в маршрута">Избор</button>
+      <button data-mode="cut" title="Две точки по трака изрязват част от него">Изрязване</button>
+      <button data-mode="add" title="Клик на картата слага точка">Добавяне</button>
+      <button data-mode="move" title="Влачи точка">Местене</button>
+      <button data-mode="remove" title="Клик върху точка я маха">Махане</button>
+    </div>
+    <button class="btn" data-act="undo" id="undoBtn" disabled>Отмени</button>
+    <label class="tol">Отклонение <input type="range" class="tolRange" min="5" max="100" step="5" value="20" aria-label="Максимално допустимо отклонение"> <b class="num tolVal">20 м</b></label>
+  </div>
+  <div id="followBar" class="bar-row follow-row" hidden>
+    <b id="followTitle">Следене</b>
+    <span class="sp"></span>
+    <div class="seg" role="group" aria-label="Изглед при следене">
+      <button data-view="map" class="on">Карта</button>
+      <button data-view="pic">Картина</button>
+    </div>
+    <button class="btn" data-act="center">Центрирай</button>
+    <button class="btn danger" data-act="follow-stop">Стоп</button>
+  </div>
+</header>
+
+<section id="mapwrap" class="mapwrap" aria-label="Карта">
+  <div id="map" class="map"></div>
+  <div class="mapctl tr">
+    <div class="seg base" role="group" aria-label="Основа на картата">
+      <button data-base="sat" class="on">Сателит</button>
+      <button data-base="topo">Топо</button>
+    </div>
+    <label class="chk" id="labelsChk"><input type="checkbox" id="labelsToggle" checked> Имена</label>
+  </div>
+  <div class="mapctl br">
+    <button class="btn ico" data-act="zoom-in" aria-label="Приближи">+</button>
+    <button class="btn ico" data-act="zoom-out" aria-label="Отдалечи">&minus;</button>
+    <button class="btn ico" data-act="fit" title="Покажи целия маршрут" aria-label="Покажи целия маршрут">&#9635;</button>
+  </div>
+  <div id="attrib" class="attrib"></div>
+  <div id="cutBox" class="cutbox" hidden>
+    <b id="cutText">Изрязване: цъкни началото по линията на трака</b>
+    <span id="cutSub" class="muted"></span>
+    <span class="cut-actions">
+      <button class="btn sm pri" data-act="cut-ok" disabled>Потвърди</button>
+      <button class="btn sm" data-act="cut-back">Върни</button>
+    </span>
+  </div>
+  <div id="empty" class="empty" hidden>
+    <b>Тук ще се появи маршрутът</b>
+    <p>Няма заредени тракове. Зареди колекция от файл или добави отделни .gpx.</p>
+    <div class="row">
+      <button class="btn pri" data-act="load-collection">Зареди колекция</button>
+      <button class="btn" data-act="add-tracks">Добави .gpx</button>
+    </div>
+  </div>
+  <div id="tip" class="tip" hidden></div>
+  <div id="pointMenu" class="pointmenu" hidden>
+    <input id="pointName" type="text" placeholder="Име на точката (напр. чешма)" aria-label="Име на точката">
+    <button class="btn sm" data-act="point-remove">Махни</button>
+    <button class="btn sm pri" data-act="point-close">Готово</button>
+  </div>
+  <div id="picView" class="picview" hidden>
+    <div id="picScroll" class="pic-scroll"><div id="picInner" class="pic-inner"><img id="picImg" alt="Запазена картина на маршрута"><svg id="picSvg"></svg></div></div>
+    <div class="pic-ctl">
+      <button class="btn sm" data-act="pic-fit">Цялата</button>
+      <button class="btn sm" data-act="pic-1">1:1</button>
+      <button class="btn sm" data-act="pic-close">Към картата</button>
+    </div>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</section>
+
+<main id="panel" class="panel">
+  <section id="followPanel" class="card follow-panel" hidden>
+    <div class="follow-stats">
+      <div><small>Изминати</small><b class="num" id="fDone">0</b></div>
+      <div><small>Време</small><b class="num" id="fTime">0:00 ч</b></div>
+      <div><small>Остават</small><b class="num" id="fLeft">-</b></div>
+      <div><small>Встрани</small><b class="num" id="fOff">-</b></div>
+    </div>
+    <p id="fMsg" class="follow-msg">Чакам сигнал от GPS...</p>
+  </section>
+
+  <section class="card summary">
+    <div class="stats" id="stats">
+      <div><small>Дължина</small><b class="num" id="sLen">0 км</b></div>
+      <div><small>Изкачване</small><b class="num" id="sUp">-</b></div>
+      <div><small>Спускане</small><b class="num" id="sDown">-</b></div>
+      <div><small>Наклон до</small><b class="num" id="sGrade">-</b></div>
+      <div><small>Части</small><b class="num" id="sParts">0</b></div>
+      <div><small>Точки</small><b class="num" id="sPts">0</b></div>
+      <div><small>Пропуснати</small><b class="num" id="sSkip">0 км</b></div>
+    </div>
+    <div class="profile-head">
+      <span class="lbl">Профил</span>
+      <span id="elevNote" class="muted small"></span>
+      <span class="sp"></span>
+      <label class="chk"><input type="checkbox" id="gradeToggle" checked> Наклон в проценти</label>
+    </div>
+    <div class="profile"><canvas id="profile" aria-label="Профил на височината"></canvas></div>
+    <div class="actions">
+      <button class="btn" data-act="export-gpx">Изнеси .gpx</button>
+      <button class="btn" data-act="picture">Картина</button>
+      <button class="btn" data-act="save">Запази</button>
+      <button class="btn" data-act="follow">Следене</button>
+      <label class="tol">Отклонение <input type="range" class="tolRange" min="5" max="100" step="5" value="20" aria-label="Максимално допустимо отклонение"> <b class="num tolVal">20 м</b></label>
+    </div>
+    <p class="hint">Клик върху сегмент го слага в маршрута като следваща част; клик върху × маха дубликата, а същият клик го връща. Посочването на ред в списъка светва същия сегмент на картата.</p>
+  </section>
+
+  <div class="cols">
+    <div class="col">
+      <section class="card">
+        <h2>Части в маршрута <span class="num muted" id="partsCount">(0)</span></h2>
+        <ol id="partsList" class="rows parts"></ol>
+        <div id="gapsList"></div>
+        <p id="partsEmpty" class="muted small">Още няма части. Клик върху трак на картата го слага в маршрута.</p>
+      </section>
+      <section class="card">
+        <h2>Точки <span class="num muted" id="ptsCount">(0)</span></h2>
+        <p class="muted small">Чертаните точки затварят дупки между частите. Точка с име излиза като спирка (waypoint) в .gpx файла. На телефон: задръж точка, за да я преместиш; докосни я и избери "Махни".</p>
+        <ol id="pointsList" class="rows points"></ol>
+      </section>
+    </div>
+    <div class="col">
+      <section class="card">
+        <h2>Тракове-източници <span class="num muted" id="tracksCount">(0)</span></h2>
+        <ul id="tracksList" class="rows tracks"></ul>
+        <div class="row">
+          <button class="btn sm" data-act="add-tracks">Добави тракове</button>
+          <button class="btn sm" data-act="load-collection">Зареди колекция</button>
+          <button class="btn sm" data-act="export-collection">Изнеси колекцията</button>
+        </div>
+      </section>
+      <section class="card">
+        <h2>Намерени дублиращи се участъци <span class="num muted" id="dupsCount">(0)</span></h2>
+        <p class="muted small">Участък се брои за дубликат, ако минава по-близо от <b class="tolVal">20 м</b> до вече приетото трасе. Отметнатите с ✓ излизат от новия маршрут; редът с × остава. Същото става с един клик върху маркировката на картата.</p>
+        <div class="scroll-x">
+          <table class="dups">
+            <thead><tr><th></th><th>Участък</th><th class="r">Дължина</th><th>Съвпада с</th><th>Посока</th></tr></thead>
+            <tbody id="dupsBody"></tbody>
+          </table>
+        </div>
+        <div class="row">
+          <button class="btn sm" data-act="dups-keep-all">Откажи всички</button>
+          <button class="btn sm" data-act="dups-skip-all">Приеми всички</button>
+          <span class="muted small" id="dupsSkipped"></span>
+        </div>
+      </section>
+      <section class="card" id="cutsCard">
+        <h2>Изрязано от тракове <span class="num muted" id="cutsCount">(0)</span></h2>
+        <ul id="cutsList" class="rows"></ul>
+        <p class="muted small">Изрязаното не се трие от файла: тракът остава цял и изрязването се връща винаги.</p>
+      </section>
+    </div>
+  </div>
+
+  <section class="card" id="picCard">
+    <h2>Запазена картина</h2>
+    <div id="picInfo" class="muted small">Още няма картина за този маршрут. Копчето "Картина" я прави и я пази заедно с обхвата ѝ.</div>
+    <div class="row">
+      <button class="btn sm" data-act="picture">Направи картина</button>
+      <button class="btn sm" data-act="pic-open" id="picOpenBtn" disabled>Покажи върху картината</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="lib-head">
+      <h2>Записани маршрути <span class="num muted" id="routesCount">(0)</span></h2>
+      <input id="routeFilter" type="search" placeholder="Търси по име" aria-label="Търси маршрут по име">
+    </div>
+    <div class="row">
+      <button class="btn sm pri" data-act="new-route">Нов от тракове</button>
+      <button class="btn sm" data-act="new-empty">Празен маршрут</button>
+      <button class="btn sm" data-act="export-collection">Изнеси колекцията</button>
+    </div>
+    <div class="scroll-x">
+      <table class="lib">
+        <thead><tr><th>Име</th><th class="r">Дължина</th><th class="r">Изкачване</th><th>Последна промяна</th><th>Действия</th></tr></thead>
+        <tbody id="routesBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <p>Данните живеят само в този браузър. За друго устройство изнеси колекцията и я зареди там.</p>
+    <p>Плочки: Esri World Imagery и Esri Reference, OpenTopoMap. Търсене: Nominatim (OpenStreetMap). Височини: Open-Meteo, резерва OpenTopoData.</p>
+    <p><button class="btn sm" data-act="theme" id="themeBtn">Тъмна тема</button></p>
+  </footer>
+</main>
+
+<dialog id="dlgImport" class="dlg">
+  <form method="dialog">
+    <h3>Импорт на GPX</h3>
+    <label class="drop" id="dropZone">
+      <b>Плъзни .gpx файл тук или избери файл</b>
+      <span class="muted small">До 10 файла наведнъж. Приема и файл с колекция (.json).</span>
+      <input type="file" id="fileInput" accept=".gpx,.json,application/gpx+xml,application/json,text/xml" multiple>
+    </label>
+    <div id="importMsg" class="import-msg"></div>
+    <p class="muted small">От файла влизат: името, точките, сегментите, имената на спирките и височината, ако я има.</p>
+    <div class="row end"><button class="btn" value="cancel">Затвори</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlgPic" class="dlg">
+  <form method="dialog" id="picForm">
+    <h3>Картина за офлайн</h3>
+    <div class="opts">
+      <fieldset><legend>Основа</legend>
+        <label><input type="radio" name="pbase" value="sat" checked> Сателит с надписи</label>
+        <label><input type="radio" name="pbase" value="topo"> Топо</label>
+      </fieldset>
+      <fieldset><legend>Обхват</legend>
+        <label><input type="radio" name="parea" value="route" checked> Целия маршрут</label>
+        <label><input type="radio" name="parea" value="view"> Текущия изглед</label>
+      </fieldset>
+      <fieldset><legend>Отгоре</legend>
+        <label><input type="checkbox" name="pinfo" checked> Числа и легенда</label>
+        <label><input type="checkbox" name="plabels" checked> Надписи</label>
+      </fieldset>
+    </div>
+    <p class="small">Файл: <span class="num" id="picFile">marshrut.png</span></p>
+    <p class="muted small" id="picEst"></p>
+    <div id="picMsg" class="import-msg"></div>
+    <div class="row end">
+      <button class="btn" value="cancel">Отказ</button>
+      <button class="btn" type="button" data-act="pic-make-both">Свали картина + .gpx</button>
+      <button class="btn pri" type="button" data-act="pic-make">Свали картината (.png)</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="js/util.js"></script>
+<script src="js/map.js"></script>
+<script src="js/gpx.js"></script>
+<script src="js/core.js"></script>
+<script src="js/elev.js"></script>
+<script src="js/snapshot.js"></script>
+<script src="js/follow.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
