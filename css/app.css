@@ -288,6 +288,9 @@ body.bar-hidden .pic-scroll { padding-top: 0; }
 .rows li.off .t { color: var(--app-muted); text-decoration: line-through; }
 .rows .pname { width: 100%; min-height: 28px; padding: 3px 7px; font-size: 13px; }
 .gap-note { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12.5px; color: var(--app-danger); padding: 6px 4px; border-bottom: 1px dashed var(--app-line-strong); }
+.gap-note.closed { color: var(--app-muted); font-size: 12px; padding: 2px 4px; border-bottom: 1px dotted var(--app-line); }
+.gap-note.closed .num { font-family: var(--app-mono); font-variant-numeric: tabular-nums; }
+.btn.sm.link { background: none; border-color: transparent; color: var(--app-accent); text-decoration: underline; padding-left: 2px; padding-right: 2px; }
 
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th { text-align: left; font-weight: 500; color: var(--app-muted); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--app-line-strong); white-space: nowrap; }
