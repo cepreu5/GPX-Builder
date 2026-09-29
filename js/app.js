@@ -1632,6 +1632,7 @@
         S.overrides = [];
         analyzeNow(); break;
       case 'show-bar': setBar(false); break;
+      case 'hide-bar': setBar(true); break;
       case 'theme': setTheme(document.documentElement.getAttribute('data-app-mode') === 'dark' ? 'light' : 'dark'); break;
     }
   }

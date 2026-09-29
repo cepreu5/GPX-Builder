@@ -120,6 +120,18 @@ function check(ok, msg) { console.log((ok ? 'OK   ' : 'FAIL ') + msg); if (!ok) 
   await page.waitForFunction(() => document.querySelector('#bar').getBoundingClientRect().top >= 0, null, { timeout: 3000 }).catch(() => {});
   check(await page.isVisible('#bar [data-act="add-tracks"]') && await page.evaluate(() => document.querySelector('#bar').getBoundingClientRect().top >= 0), 'горната лента е видима');
   check(await page.isHidden('#barHandle') && await page.evaluate(() => document.querySelector('#barHandle').hidden), 'табчето пак е скрито (hidden)');
+  // Видимо копче за скриване в самата лента.
+  const hbtn = await page.evaluate(() => { const b = document.querySelector('#hideBarBtn'), r = b.getBoundingClientRect(); return { tag: b.tagName, act: b.dataset.act, label: b.getAttribute('aria-label'), title: b.getAttribute('title'), text: b.textContent.trim(), w: r.width, h: r.height, wide: b.classList.contains('wide-only') }; });
+  check(hbtn.tag === 'BUTTON' && hbtn.act === 'hide-bar' && /Скрий горната лента/.test(hbtn.label) && /Скрий горната лента/.test(hbtn.title) && hbtn.text === '\u25B2' && !hbtn.wide, 'копче за скриване: бутон ' + hbtn.text + ', aria-label/title: ' + hbtn.label);
+  check(await page.isVisible('#hideBarBtn') && hbtn.w >= 30 && hbtn.h >= 24, 'копчето за скриване се вижда: ' + Math.round(hbtn.w) + 'x' + Math.round(hbtn.h) + ' px');
+  await page.click('#hideBarBtn');
+  check(await page.evaluate(() => document.body.classList.contains('bar-hidden')), 'клик върху копчето за скриване: лентата се скрива (bar-hidden)');
+  check(await page.isVisible('#barHandle'), 'след копчето за скриване табчето "Лента" се вижда');
+  await page.waitForFunction(() => document.querySelector('#bar').getBoundingClientRect().bottom <= 0, null, { timeout: 3000 }).catch(() => {});
+  await page.click('#barHandle');
+  await page.waitForFunction(() => document.querySelector('#bar').getBoundingClientRect().top >= 0, null, { timeout: 3000 }).catch(() => {});
+  check(await page.evaluate(() => !document.body.classList.contains('bar-hidden') && document.querySelector('#barHandle').hidden), 'табчето връща лентата след копчето за скриване');
+  check(await page.isVisible('#hideBarBtn'), 'копчето за скриване пак се вижда');
   // Второ скриване: без подсказка; връщане с ново цъкане на празно място.
   await page.evaluate(() => { document.querySelector('#toast').hidden = true; });
   await page.mouse.click(emptyPt.x, emptyPt.y);
@@ -190,6 +202,11 @@ function check(ok, msg) { console.log((ok ? 'OK   ' : 'FAIL ') + msg); if (!ok) 
   await page.screenshot({ path: path.join(OUT, 'follow-pic-1280.png') });
   await page.click('#followBar [data-view="map"]');
   await page.screenshot({ path: path.join(OUT, 'follow-map-1280.png') });
+  check(await page.isVisible('#followBar') && await page.isVisible('#hideBarBtn'), 'следене: копчето за скриване на лентата се вижда');
+  await page.click('#hideBarBtn');
+  check(await page.evaluate(() => document.body.classList.contains('bar-hidden') && !!__gpxk.ui.follower), 'следене: копчето скрива лентата, следенето продължава');
+  await page.click('#barHandle');
+  check(await page.evaluate(() => !document.body.classList.contains('bar-hidden')), 'следене: табчето връща лентата');
   const nt = await page.evaluate(() => __gpxk.S.tracks.length);
   await page.click('[data-act="follow-stop"]');
   check(await page.evaluate(n => __gpxk.S.tracks.length === n + 1 && /изминат/.test(__gpxk.S.tracks[n].name), nt), 'изминатият път е записан като нов трак');
@@ -230,6 +247,21 @@ function check(ok, msg) { console.log((ok ? 'OK   ' : 'FAIL ') + msg); if (!ok) 
   check(!ov, 'на 390 px табчето не се застъпва с "Сателит / Топо / Имена"');
   await page.screenshot({ path: path.join(OUT, 'bar-hidden-390.png') });
   await page.click('#barHandle');
+  // Тясно: 380 px - копчето за скриване се вижда и не застъпва табчето.
+  await page.setViewportSize({ width: 380, height: 800 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForFunction(() => document.querySelector('#bar').getBoundingClientRect().top >= 0, null, { timeout: 3000 }).catch(() => {});
+  const nb = await page.evaluate(() => { const r = document.querySelector('#hideBarBtn').getBoundingClientRect(); return { l: r.left, r: r.right, w: r.width }; });
+  check(await page.isVisible('#hideBarBtn') && nb.w > 0 && nb.l >= 0 && nb.r <= 380, 'на 380 px копчето за скриване се вижда (' + Math.round(nb.l) + '-' + Math.round(nb.r) + ' px)');
+  await page.screenshot({ path: path.join(OUT, 'bar-380.png') });
+  await page.click('#hideBarBtn');
+  await page.waitForFunction(() => document.querySelector('#bar').getBoundingClientRect().bottom <= 0, null, { timeout: 3000 }).catch(() => {});
+  const ov2 = await page.evaluate(() => { const a = document.querySelector('#barHandle').getBoundingClientRect(), b = document.querySelector('#hideBarBtn').getBoundingClientRect(); return !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top); });
+  check(await page.evaluate(() => document.body.classList.contains('bar-hidden')) && await page.isVisible('#barHandle') && !ov2, 'на 380 px: лентата скрита, табчето се вижда и не се застъпва с копчето за скриване');
+  await page.screenshot({ path: path.join(OUT, 'bar-hidden-380.png') });
+  await page.click('#barHandle');
+  check(await page.evaluate(() => !document.body.classList.contains('bar-hidden')) && await page.isVisible('#hideBarBtn'), 'на 380 px табчето връща лентата и копчето пак се вижда');
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => document.querySelector('#panel').scrollIntoView());
   await page.screenshot({ path: path.join(OUT, 'panel-390.png') });
   await page.screenshot({ path: path.join(OUT, 'panel-390-full.png'), fullPage: true });
