@@ -212,12 +212,137 @@
       sections.sort(function (p, q) { return p.a - q.a; });
       gaps.forEach(function (g) { sections.push(g); result.gaps.push(g); });
       result.byTrack[t.id] = sections;
-      sections.forEach(function (s) {
-        if (s.kind === 'dup') result.dups.push(s);
-        if (s.kind === 'part') result.parts.push(s);
-      });
+      sections.forEach(function (s) { if (s.kind === 'dup') result.dups.push(s); });
+    });
+    result.junctions = findJunctions(live, result, tol, kx, ky);
+    live.forEach(function (t) {
+      result.byTrack[t.id].forEach(function (s) { if (s.kind === 'part') result.parts.push(s); });
     });
     return result;
+  }
+
+  var JOIN_MIN = 40; // по-къси парчета при разделяне в точка на прекъсване не се правят
+
+  // Най-близкото място до точка, само в участъка [a,b] на трака.
+  function nearestInRange(t, a, b, lat, lon, kx, ky) {
+    var c = t._cum, pts = t.pts, px = lon * kx, py = lat * ky, best = null;
+    for (var i = 0; i < pts.length - 1; i++) {
+      if (c[i + 1] < a || c[i] > b) continue;
+      var r = U.projectSeg(px, py, pts[i][1] * kx, pts[i][0] * ky, pts[i + 1][1] * kx, pts[i + 1][0] * ky);
+      if (!best || r.d2 < best.d2) best = { d2: r.d2, d: c[i] + r.t * (c[i + 1] - c[i]) };
+    }
+    if (best) { best.dist = Math.sqrt(best.d2); best.d = Math.max(a, Math.min(b, best.d)); }
+    return best;
+  }
+
+  // Пресичане на две отсечки: връща дела по първата или null.
+  function segCross(ax, ay, bx, by, cx, cy, dx, dy) {
+    var rx = bx - ax, ry = by - ay, sx = dx - cx, sy = dy - cy;
+    var den = rx * sy - ry * sx;
+    if (Math.abs(den) < 1e-9) return null;
+    var qx = cx - ax, qy = cy - ay;
+    var t = (qx * sy - qy * sx) / den, u = (qx * ry - qy * rx) / den;
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : null;
+  }
+
+  /* Точки на прекъсване: където приетите участъци на два трака се събират или се делят
+     (краищата на обща отсечка, край на участък при друг трак) и където два трака само се
+     пресичат. Приетите участъци се разделят в тези точки, така че от всяка точка тръгват
+     отделни клонове. Всяка точка носи клоновете си: {trackId, a, b, key, from:'a'|'b'}. */
+  function findJunctions(live, result, tol, kx, ky) {
+    var jt = Math.max(ROUTE_GAP, 1.5 * tol);
+    var byId = {}, cand = [];
+    live.forEach(function (t) { byId[t.id] = t; });
+    function partsOf(id) { return result.byTrack[id].filter(function (s) { return s.kind === 'part'; }); }
+    // 1. Краищата на махнатите дубликати, до които има приет участък от същия трак.
+    result.dups.forEach(function (d) {
+      var ps = partsOf(d.trackId);
+      [d.a, d.b].forEach(function (e) {
+        if (ps.some(function (p) { return Math.abs(p.a - e) < 1 || Math.abs(p.b - e) < 1; })) cand.push(pointAt(byId[d.trackId], e));
+      });
+    });
+    // 2. Край на приет участък при приет участък от друг трак.
+    live.forEach(function (t) {
+      partsOf(t.id).forEach(function (p) {
+        [p.a, p.b].forEach(function (e) {
+          var q = pointAt(t, e);
+          var near = live.some(function (o) {
+            return o !== t && partsOf(o.id).some(function (op) {
+              var n = nearestInRange(o, op.a, op.b, q[0], q[1], kx, ky);
+              return n && n.dist <= tol;
+            });
+          });
+          if (near) cand.push(q);
+        });
+      });
+    });
+    // 3. Пресичания на приети участъци от различни тракове (решетка от отсечки).
+    var cell = 250, grid = new Map();
+    live.forEach(function (t, ti) {
+      var c = t._cum, pts = t.pts, ps = partsOf(t.id);
+      for (var j = 0; j < pts.length - 1; j++) {
+        var inPart = ps.some(function (p) { return c[j] >= p.a - 0.5 && c[j + 1] <= p.b + 0.5; });
+        if (!inPart) continue;
+        var x0 = pts[j][1] * kx, y0 = pts[j][0] * ky, x1 = pts[j + 1][1] * kx, y1 = pts[j + 1][0] * ky;
+        var ax = Math.floor(Math.min(x0, x1) / cell), bx = Math.floor(Math.max(x0, x1) / cell);
+        var ay = Math.floor(Math.min(y0, y1) / cell), by = Math.floor(Math.max(y0, y1) / cell);
+        if ((bx - ax + 1) * (by - ay + 1) > 400) continue;
+        for (var ix = ax; ix <= bx; ix++) for (var iy = ay; iy <= by; iy++) {
+          var k = ix + ':' + iy, l = grid.get(k);
+          if (!l) grid.set(k, l = []);
+          l.push([ti, j, x0, y0, x1, y1]);
+        }
+      }
+    });
+    grid.forEach(function (l) {
+      for (var m = 0; m < l.length; m++) for (var n = m + 1; n < l.length; n++) {
+        var p = l[m], q = l[n];
+        if (p[0] === q[0]) continue;
+        var f = segCross(p[2], p[3], p[4], p[5], q[2], q[3], q[4], q[5]);
+        if (f == null) continue;
+        cand.push([(p[3] + f * (p[5] - p[3])) / ky, (p[2] + f * (p[4] - p[2])) / kx, null]);
+      }
+    });
+    // Близките точки се сливат; остава първата (краищата на дубликатите са с предимство).
+    var js = [];
+    cand.forEach(function (q) {
+      if (!js.some(function (j) { return U.hav(j.lat, j.lon, q[0], q[1]) <= jt; })) js.push({ lat: q[0], lon: q[1] });
+    });
+    // Разделяне на приетите участъци в точките.
+    live.forEach(function (t) {
+      var out = [];
+      result.byTrack[t.id].forEach(function (s) {
+        if (s.kind !== 'part') { out.push(s); return; }
+        var at = [];
+        js.forEach(function (j) {
+          var n = nearestInRange(t, s.a, s.b, j.lat, j.lon, kx, ky);
+          if (n && n.dist <= jt && n.d - s.a > JOIN_MIN && s.b - n.d > JOIN_MIN) at.push(n.d);
+        });
+        at.sort(function (x, y) { return x - y; });
+        var a = s.a;
+        at.forEach(function (d) {
+          if (d - a < JOIN_MIN || s.b - d < JOIN_MIN) return;
+          out.push({ trackId: t.id, kind: 'part', a: a, b: d, len: d - a, key: t.id + ':' + Math.round(a) });
+          a = d;
+        });
+        out.push(a === s.a ? s : { trackId: t.id, kind: 'part', a: a, b: s.b, len: s.b - a, key: t.id + ':' + Math.round(a) });
+      });
+      result.byTrack[t.id] = out;
+    });
+    // Клоновете: приетите участъци с край в точката.
+    js.forEach(function (j) {
+      j.key = Math.round(j.lat * 1e5) + ':' + Math.round(j.lon * 1e5);
+      j.branches = [];
+      live.forEach(function (t) {
+        partsOf(t.id).forEach(function (s) {
+          var pa = pointAt(t, s.a), pb = pointAt(t, s.b);
+          var da = U.hav(j.lat, j.lon, pa[0], pa[1]), db = U.hav(j.lat, j.lon, pb[0], pb[1]);
+          var from = da <= db ? 'a' : 'b';
+          if (Math.min(da, db) <= jt) j.branches.push({ trackId: t.id, a: s.a, b: s.b, len: s.len, key: s.key, from: from });
+        });
+      });
+    });
+    return js.filter(function (j) { return j.branches.length >= 2; });
   }
 
   // Точка на разстояние d по трака (с интерполация).
@@ -361,6 +486,90 @@
     return { items: items, pts: all, cum: cum, len: all.length ? cum[cum.length - 1] : 0, gaps: gaps };
   }
 
+  var PROBE = 80; // на толкова метра след точката се сравнява накъде тръгва маршрутът
+
+  // Точка по сглобения маршрут на разстояние d.
+  function routeAt(geo, d) {
+    var c = geo.cum, pts = geo.pts;
+    if (!pts.length) return null;
+    if (d <= 0) return pts[0];
+    if (d >= geo.len) return pts[pts.length - 1];
+    var lo = 0, hi = c.length - 1;
+    while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (c[mid] <= d) lo = mid; else hi = mid; }
+    var f = (d - c[lo]) / ((c[hi] - c[lo]) || 1), p = pts[lo], q = pts[hi];
+    return [p[0] + f * (q[0] - p[0]), p[1] + f * (q[1] - p[1])];
+  }
+  // Точка по клона, малко след точката на прекъсване.
+  function branchProbe(br, tracksById) {
+    var t = tracksById[br.trackId];
+    if (!t) return null;
+    var k = Math.min(PROBE, (br.b - br.a) / 2);
+    return pointAt(t, br.from === 'a' ? br.a + k : br.b - k);
+  }
+  function nearestBranch(j, probe, tracksById, jt) {
+    if (!probe) return -1;
+    var bi = -1, bd = jt;
+    j.branches.forEach(function (br, i) {
+      var q = branchProbe(br, tracksById);
+      var d = q ? U.hav(q[0], q[1], probe[0], probe[1]) : Infinity;
+      if (d <= bd) { bd = d; bi = i; }
+    });
+    return bi;
+  }
+
+  /* Точките на прекъсване, през които минава маршрутът: на границата между две
+     съседни части (или в края му). За всяка: след кой елемент от route.items е
+     (head), по кой клон продължава (chosen) и от кой идва (incoming). */
+  function routeForks(geo, junctions, tol, tracksById) {
+    var jt = Math.max(ROUTE_GAP, 1.5 * (tol || 20)), out = [];
+    var real = geo.items.filter(function (g) { return !g.shared && g.pts.length && g.end >= g.start; });
+    (junctions || []).forEach(function (j) {
+      var hit = null;
+      for (var k = 0; k < real.length && !hit; k++) {
+        var P = real[k], N = real[k + 1], e = geo.pts[P.end];
+        if (U.hav(j.lat, j.lon, e[0], e[1]) <= jt) hit = { head: P.idx, d: geo.cum[P.end], atEnd: !N };
+        else if (N) {
+          var s = geo.pts[N.start];
+          if (U.hav(j.lat, j.lon, s[0], s[1]) <= jt) hit = { head: P.idx, d: geo.cum[N.start], atEnd: false };
+        }
+      }
+      if (!hit && real.length) {
+        var s0 = geo.pts[real[0].start];
+        if (U.hav(j.lat, j.lon, s0[0], s0[1]) <= jt) hit = { head: -1, d: 0, atEnd: false, atStart: true };
+      }
+      if (!hit) return;
+      hit.j = j;
+      hit.probeAfter = hit.atEnd ? null : routeAt(geo, hit.d + PROBE);
+      hit.chosen = nearestBranch(j, hit.probeAfter, tracksById, jt);
+      hit.incoming = hit.atStart ? -1 : nearestBranch(j, routeAt(geo, hit.d - PROBE), tracksById, jt);
+      if (hit.chosen === hit.incoming) hit.chosen = -1;
+      out.push(hit);
+    });
+    return out;
+  }
+
+  /* Смяна на посоката: след точката маршрутът продължава по клона br. Досегашното
+     продължение се пази в route.forks, за да се върне при нов избор на стария клон. */
+  function switchFork(route, fork, br, tracksById, tol) {
+    var jt = Math.max(ROUTE_GAP, 1.5 * (tol || 20)), j = fork.j;
+    route.forks = route.forks || [];
+    var entry = route.forks.filter(function (e) { return U.hav(e.at[0], e.at[1], j.lat, j.lon) <= jt; })[0];
+    if (!entry) route.forks.push(entry = { at: [j.lat, j.lon], alts: [] });
+    function near(a, q) { return a && q && U.hav(a[0], a[1], q[0], q[1]) <= jt; }
+    var tail = route.items.slice(fork.head + 1);
+    if (tail.length && fork.probeAfter) {
+      entry.alts = entry.alts.filter(function (a) { return !near(a.probe, fork.probeAfter); });
+      entry.alts.push({ probe: [fork.probeAfter[0], fork.probeAfter[1]], items: JSON.parse(JSON.stringify(tail)) });
+    }
+    var bp = branchProbe(br, tracksById);
+    var alt = entry.alts.filter(function (a) { return near(a.probe, bp); })[0];
+    var next = alt ? JSON.parse(JSON.stringify(alt.items))
+      : [{ type: 'part', trackId: br.trackId, a: br.a, b: br.b, rev: br.from === 'b' }];
+    route.items = route.items.slice(0, fork.head + 1).concat(next);
+    entry.chosen = bp ? [bp[0], bp[1]] : null;
+    return route;
+  }
+
   function trackBounds(tracks) {
     return U.boundsOf(tracks.map(function (t) { return t.pts; }));
   }
@@ -368,6 +577,8 @@
   window.Core = {
     prep: prep, analyze: analyze, slice: slice, pointAt: pointAt, nearestOn: nearestOn,
     nearestOnTrack: nearestOnTrack, invalidShare: invalidShare, routeGeometry: routeGeometry,
-    trackBounds: trackBounds, overlap: overlap, ROUTE_GAP: ROUTE_GAP
+    trackBounds: trackBounds, overlap: overlap, ROUTE_GAP: ROUTE_GAP,
+    routeForks: routeForks, switchFork: switchFork, branchProbe: branchProbe,
+    joinTol: function (tol) { return Math.max(ROUTE_GAP, 1.5 * (tol || 20)); }
   };
 })();
