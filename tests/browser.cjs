@@ -91,12 +91,10 @@ function barFits() {
   check(g.n === 2, 'две части в маршрута');
   check(/км$/.test(g.text) && /,/.test(g.text), 'дължина в български формат: ' + g.text);
 
-  // Клик върху × връща дубликата, втори клик го маха.
-  const dupPt = await screenOf(() => { const d = __gpxk.A.dups[0], t = __gpxk.S.tracks.find(x => x.id === d.trackId); const p = window.Core.pointAt(t, (d.a + d.b) / 2); return __gpxk.map.project(p[0], p[1]); });
-  await page.mouse.click(dupPt.x, dupPt.y);
-  check(await page.evaluate(() => __gpxk.A.dups[0].kept === true), 'клик върху ×: дубликатът е върнат');
-  await page.mouse.click(dupPt.x, dupPt.y);
-  check(await page.evaluate(() => __gpxk.A.dups[0].kept === false), 'същият клик: дубликатът е махнат пак');
+  // Дубликатите не стоят като обект: няма таблица и бутони, само един ред обобщение.
+  const dsum = await page.evaluate(() => ({ text: document.querySelector('#dupsSkipped').textContent, skip: document.querySelector('#sSkip').textContent, table: !!document.querySelector('#dupsBody'), btns: document.querySelectorAll('[data-act^="dups-"]').length, kept: __gpxk.A.dups.some(d => 'kept' in d), over: 'overrides' in __gpxk.S }));
+  check(/^Пропуснати дубликати: 1 участък · /.test(dsum.text) && dsum.text.endsWith(dsum.skip), 'обобщение на дубликатите: ' + dsum.text + ' (Пропуснати ' + dsum.skip + ')');
+  check(!dsum.table && dsum.btns === 0 && !dsum.kept && !dsum.over, 'няма таблица, бутони, kept и overrides');
 
   // Плъзгач за отклонение: 40 м - обратният трак на 35 м става дубликат.
   await page.evaluate(() => { const r = document.querySelector('.tolRange'); r.value = 40; r.dispatchEvent(new Event('input', { bubbles: true })); });
@@ -311,6 +309,60 @@ function barFits() {
   if (sweepOk) check(true, 'лентата се побира при 320-1440 px');
   const tip = await page.evaluate(() => ({ x: document.documentElement.scrollWidth - innerWidth }));
   check(tip.x <= 0, 'след обхождането няма хоризонтален скрол (' + tip.x + ')');
+
+  // Обща отсечка: три трака (X на изток, Z от края на X на юг, Y слиза до X, минава по него и се отделя).
+  // Празна колекция в нов контекст; траковете се внасят като .gpx файлове.
+  function line(lat0, lon0, lat1, lon1, n) { const p = []; for (let i = 0; i <= n; i++) { const f = i / n; p.push([lat0 + f * (lat1 - lat0), lon0 + f * (lon1 - lon0), 500 + i]); } return p; }
+  function writeGpx(name, pts) {
+    const f = path.join(OUT, name + '.gpx');
+    fs.writeFileSync(f, '<?xml version="1.0"?>\n<gpx version="1.1" creator="test" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>' + name + '</name><trkseg>\n' +
+      pts.map(p => '<trkpt lat="' + p[0].toFixed(6) + '" lon="' + p[1].toFixed(6) + '"><ele>' + p[2] + '</ele></trkpt>').join('\n') + '\n</trkseg></trk></gpx>\n');
+    return f;
+  }
+  const shFiles = [
+    writeGpx('X', line(42.5, 24.70, 42.5, 24.72, 100)),
+    writeGpx('Z', line(42.5, 24.72, 42.49, 24.72, 60)),
+    writeGpx('Y', line(42.51, 24.71, 42.50009, 24.71, 60).concat(line(42.50009, 24.7101, 42.50009, 24.72, 60), line(42.5003, 24.7201, 42.51, 24.73, 60)))
+  ];
+  const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const p2 = await ctx2.newPage();
+  p2.on('pageerror', e => errors.push('pageerror: ' + e.message));
+  p2.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text()) && !/api\.opentopodata\.org/.test(m.text())) errors.push('console: ' + m.text()); });
+  await p2.goto(url);
+  await p2.waitForFunction(() => window.__gpxk && window.__gpxk.ready);
+  await p2.setInputFiles('#fileInput', shFiles);
+  await p2.waitForFunction(() => __gpxk.S.tracks.length === 3);
+  const secY = await p2.evaluate(() => __gpxk.A.byTrack[__gpxk.S.tracks[2].id].filter(s => s.kind !== 'gap').map(s => s.kind));
+  check(JSON.stringify(secY) === '["part","dup","part"]', 'трак Y: част, дубликат, част ' + JSON.stringify(secY));
+  // Клик върху първата част на Y, после върху частта на Z (различни тракове).
+  const ptOf = (ti, kind, k, f) => p2.evaluate(([ti, kind, k, f]) => { const t = __gpxk.S.tracks[ti], s = __gpxk.A.byTrack[t.id].filter(x => x.kind === kind)[k]; const p = window.Core.pointAt(t, s.a + (s.b - s.a) * f); return __gpxk.map.project(p[0], p[1]); }, [ti, kind, k, f]);
+  let q = await ptOf(2, 'part', 0, 0.4);
+  await p2.mouse.click(q.x, q.y);
+  q = await ptOf(1, 'part', 0, 0.6);
+  await p2.mouse.click(q.x, q.y);
+  const sh = await p2.evaluate(() => {
+    const G = __gpxk.G, A = __gpxk.A, r = __gpxk.S.routes.find(x => x.id === __gpxk.S.curId);
+    const shared = G.items.filter(g => g.shared), dup = A.dups[0];
+    const parts = G.items.filter(g => !g.shared).reduce((s, g) => s + g.len, 0);
+    let jump = 0; for (let i = 1; i < G.pts.length; i++) jump = Math.max(jump, U.hav(G.pts[i - 1][0], G.pts[i - 1][1], G.pts[i][0], G.pts[i][1]));
+    return { items: r.items.length, count: G.count, sParts: document.querySelector('#sParts').textContent, gaps: G.gaps.length, gapNotes: document.querySelectorAll('#gapsList .gap-note').length,
+      shared: shared.length, sharedLen: shared[0] && shared[0].len, dupLen: dup && dup.len, len: G.len, parts, jump,
+      row: (document.querySelector('#partsList li.shared') || {}).textContent || '', badges: document.querySelectorAll('#partsList .badge').length };
+  });
+  check(sh.items === 2 && sh.count === 2 && sh.sParts === '2' && sh.badges === 2, 'две части в маршрута, "Части" = ' + sh.sParts + ' (общата отсечка не се брои)');
+  check(sh.gaps === 0 && sh.gapNotes === 0 && sh.jump <= 30, 'маршрутът е непрекъснат между частите: няма G.gaps, най-голям скок ' + Math.round(sh.jump) + ' м');
+  check(sh.shared === 1 && Math.abs(sh.sharedLen - sh.dupLen) < 5 && Math.abs(sh.len - (sh.parts + sh.dupLen)) < 60, 'дължината включва общата отсечка веднъж: ' + Math.round(sh.len) + ' = ' + Math.round(sh.parts) + ' + ' + Math.round(sh.dupLen));
+  check(/обща отсечка\s·\s.*км\s·\sминава се веднъж/.test(sh.row), 'ред в списъка: ' + sh.row);
+  // Клик върху махнатия дубликат (отблизо, върху Y) не прави нищо.
+  await p2.evaluate(() => { const t = __gpxk.S.tracks[2], d = __gpxk.A.dups[0], p = window.Core.pointAt(t, (d.a + d.b) / 2); __gpxk.map.setView(p[0], p[1], 18); });
+  q = await ptOf(2, 'dup', 0, 0.5);
+  const before = await p2.evaluate(() => JSON.stringify(__gpxk.S.routes.find(x => x.id === __gpxk.S.curId).items));
+  await p2.mouse.click(q.x, q.y);
+  const after = await p2.evaluate(() => ({ items: JSON.stringify(__gpxk.S.routes.find(x => x.id === __gpxk.S.curId).items), hidden: document.body.classList.contains('bar-hidden'), dups: __gpxk.A.dups.length, kept: __gpxk.A.dups.some(d => 'kept' in d) }));
+  check(after.items === before && !after.hidden && after.dups === 1 && !after.kept, 'клик върху махнат дубликат: маршрутът не се пипа, дубликатът не се връща');
+  await p2.evaluate(() => { const G = __gpxk.G, b = U.boundsOf([G.pts]); __gpxk.map.setView((b.s + b.n) / 2, (b.w + b.e) / 2, 14); });
+  await p2.screenshot({ path: path.join(OUT, 'shared-1280.png') });
+  await ctx2.close();
 
   check(errors.length === 0, 'конзолата е чиста' + (errors.length ? ': ' + errors.join(' | ') : ''));
   await browser.close();
