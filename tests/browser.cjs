@@ -20,6 +20,22 @@ const server = http.createServer((req, res) => {
 
 let failures = 0;
 function check(ok, msg) { console.log((ok ? 'OK   ' : 'FAIL ') + msg); if (!ok) failures++; }
+// Изпълняват се в страницата.
+function handleRow() {
+  const a = document.querySelector('#barHandle').getBoundingClientRect(), b = document.querySelector('.mapctl.tr').getBoundingClientRect();
+  return { sameRow: a.top < b.bottom && b.top < a.bottom, xOverlap: !(a.right <= b.left || b.right <= a.left), info: Math.round(a.left) + '-' + Math.round(a.right) + ' / ' + Math.round(b.left) + '-' + Math.round(b.right) + ' px, y ' + Math.round(a.top) + '/' + Math.round(b.top) };
+}
+function vis(sel) {
+  const e = document.querySelector(sel); if (!e) return null;
+  const r = e.getBoundingClientRect(), st = getComputedStyle(e);
+  return { shown: r.width > 0 && r.height > 0 && st.visibility !== 'hidden', l: r.left, r: r.right, t: r.top, w: r.width };
+}
+function barFits() {
+  const W = innerWidth, row = document.querySelector('#bar .bar-row:first-child'), rr = row.getBoundingClientRect(), bad = [];
+  Array.from(row.children).forEach(c => { const x = c.getBoundingClientRect(); if (x.width && (x.right > W + 0.5 || x.right > rr.right + 0.5 || x.left < rr.left - 0.5)) bad.push((c.id || c.className) + ':' + Math.round(x.right)); });
+  if (row.scrollWidth > row.clientWidth) bad.push('scrollWidth+' + (row.scrollWidth - row.clientWidth));
+  return bad;
+}
 
 (async () => {
   await new Promise(r => server.listen(0, '127.0.0.1', r));
@@ -90,6 +106,9 @@ function check(ok, msg) { console.log((ok ? 'OK   ' : 'FAIL ') + msg); if (!ok) 
   check(/40 м/.test(await page.textContent('#bar .tolVal')), 'стойността на плъзгача се показва');
   await page.evaluate(() => { const r = document.querySelector('.tolRange'); r.value = 20; r.dispatchEvent(new Event('input', { bubbles: true })); });
   await page.waitForFunction(() => __gpxk.A.tol === 20);
+  const lay = await page.evaluate(() => { const f = document.querySelector('#searchForm'), seg = document.querySelector('#tools .seg'); return { inTools: f.parentElement.id === 'tools', right: f.getBoundingClientRect().left >= seg.getBoundingClientRect().right, undoRow1: document.querySelector('#undoBtn').parentElement === document.querySelector('#bar .bar-row:first-child'), tolRow1: document.querySelector('#bar .tolRange').closest('.bar-row') === document.querySelector('#bar .bar-row:first-child'), firstTol: document.querySelector('.tolRange').closest('#bar') !== null }; });
+  check(await page.isVisible('#searchForm') && lay.inTools && lay.right, 'на 1280 px търсенето се вижда, във втория ред, вдясно от режимите');
+  check(lay.undoRow1 && lay.tolRow1 && lay.firstTol, '"Отмени" и плъзгачът са в първия ред (плъзгачът в лентата е първият .tolRange)');
 
   // Скриване на лентата с цъкане на празно място и връщане с табчето горе.
   check(await page.isHidden('#barHandle'), 'лентата се вижда: табчето горе е скрито');
@@ -107,11 +126,14 @@ function check(ok, msg) { console.log((ok ? 'OK   ' : 'FAIL ') + msg); if (!ok) 
   check(await page.evaluate(() => document.body.classList.contains('bar-hidden')), 'цъкане на празно място: лентата се скрива (bar-hidden)');
   check(await page.evaluate(n => __gpxk.S.routes.find(r => r.id === __gpxk.S.curId).items.length === n, items0), 'цъкането на празно място не пипа маршрута');
   check(await page.isVisible('#barHandle'), 'табчето "Лента" се вижда');
-  const hb = await page.evaluate(() => { const b = document.querySelector('#barHandle'), r = b.getBoundingClientRect(); return { w: r.width, h: r.height, top: r.top, cx: r.left + r.width / 2, tag: b.tagName, label: b.getAttribute('aria-label'), text: b.textContent.trim() }; });
-  check(hb.tag === 'BUTTON' && hb.label === 'Покажи горната лента' && /Лента/.test(hb.text), 'табчето е бутон с aria-label: ' + hb.label + ' / ' + hb.text);
-  check(hb.w >= 44 && hb.h >= 28 && hb.top <= 1 && Math.abs(hb.cx - 640) < 2, 'табчето: ' + Math.round(hb.w) + 'x' + Math.round(hb.h) + ' px, горе в средата');
+  const hb = await page.evaluate(() => { const b = document.querySelector('#barHandle'), r = b.getBoundingClientRect(); return { w: r.width, h: r.height, top: r.top, left: r.left, tag: b.tagName, label: b.getAttribute('aria-label'), text: b.textContent.trim() }; });
+  check(hb.tag === 'BUTTON' && hb.label === 'Покажи горната лента' && /▼ Лента/.test(hb.text), 'табчето е бутон с aria-label: ' + hb.label + ' / ' + hb.text);
+  check(hb.w >= 44 && hb.h >= 28 && hb.top <= 14 && hb.left <= 12, 'табчето: ' + Math.round(hb.w) + 'x' + Math.round(hb.h) + ' px, горе вляво (' + Math.round(hb.left) + ',' + Math.round(hb.top) + ')');
+  await page.waitForFunction(() => document.querySelector('.mapctl.tr').getBoundingClientRect().top < 20, null, { timeout: 3000 }).catch(() => {});
+  const row1280 = await page.evaluate(handleRow);
+  check(row1280.sameRow && !row1280.xOverlap, 'на 1280 px табчето и "Сателит / Топо / Имена" са на един ред и не се застъпват: ' + row1280.info);
   const hint = await page.evaluate(() => { const t = document.querySelector('#toast'); return t.hidden ? '' : t.textContent; });
-  check(/Лентата се скри - цъкни табчето горе/.test(hint), 'подсказка при първо скриване: ' + hint);
+  check(/Лентата се скри - цъкни бутона „Лента“ горе вляво/.test(hint), 'подсказка при първо скриване: ' + hint);
   check(await page.evaluate(() => JSON.parse(localStorage.getItem('gpxk.barHint')) === true), 'подсказката е запомнена (gpxk.barHint)');
   await page.waitForFunction(() => { const r = document.querySelector('#bar').getBoundingClientRect(); return r.bottom <= 0; }, null, { timeout: 3000 }).catch(() => {});
   await page.screenshot({ path: path.join(OUT, 'bar-hidden-1280.png') });
@@ -243,8 +265,9 @@ function check(ok, msg) { console.log((ok ? 'OK   ' : 'FAIL ') + msg); if (!ok) 
   await page.screenshot({ path: path.join(OUT, 'route-390.png') });
   await page.evaluate(() => { document.body.classList.add('bar-hidden'); document.querySelector('#barHandle').hidden = false; });
   await page.waitForTimeout(300);
-  const ov = await page.evaluate(() => { const a = document.querySelector('#barHandle').getBoundingClientRect(), b = document.querySelector('.mapctl.tr').getBoundingClientRect(); return !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top); });
-  check(!ov, 'на 390 px табчето не се застъпва с "Сателит / Топо / Имена"');
+  await page.waitForFunction(() => document.querySelector('.mapctl.tr').getBoundingClientRect().top < 20, null, { timeout: 3000 }).catch(() => {});
+  const row390 = await page.evaluate(handleRow);
+  check(row390.sameRow && !row390.xOverlap, 'на 390 px табчето и "Сателит / Топо / Имена" са на един ред и не се застъпват: ' + row390.info);
   await page.screenshot({ path: path.join(OUT, 'bar-hidden-390.png') });
   await page.click('#barHandle');
   // Тясно: 380 px - копчето за скриване се вижда и не застъпва табчето.
@@ -253,9 +276,18 @@ function check(ok, msg) { console.log((ok ? 'OK   ' : 'FAIL ') + msg); if (!ok) 
   await page.waitForFunction(() => document.querySelector('#bar').getBoundingClientRect().top >= 0, null, { timeout: 3000 }).catch(() => {});
   const nb = await page.evaluate(() => { const r = document.querySelector('#hideBarBtn').getBoundingClientRect(); return { l: r.left, r: r.right, w: r.width }; });
   check(await page.isVisible('#hideBarBtn') && nb.w > 0 && nb.l >= 0 && nb.r <= 380, 'на 380 px копчето за скриване се вижда (' + Math.round(nb.l) + '-' + Math.round(nb.r) + ' px)');
+  const u380 = await page.evaluate(vis, '#undoBtn'), t380 = await page.evaluate(vis, '#bar .tolRange'), s380 = await page.evaluate(vis, '#searchForm');
+  check(u380.shown && u380.l >= 0 && u380.r <= 380, 'на 380 px "Отмени" се вижда изцяло (' + Math.round(u380.l) + '-' + Math.round(u380.r) + ' px)');
+  check(t380.shown && t380.w >= 80 && t380.l >= 0 && t380.r <= 380, 'на 380 px плъзгачът "Отклонение" се вижда: ' + Math.round(t380.w) + ' px, ' + Math.round(t380.l) + '-' + Math.round(t380.r));
+  check(!s380.shown && await page.isHidden('#searchForm'), 'на 380 px търсенето е скрито');
+  const bar380 = await page.evaluate(() => ({ bar: document.querySelector('#bar').getBoundingClientRect().bottom, tr: document.querySelector('.mapctl.tr').getBoundingClientRect().top }));
+  check(bar380.bar <= 122 && bar380.bar <= bar380.tr, 'на 380 px лентата е ' + Math.round(bar380.bar) + ' px висока и не покрива "Сателит / Топо" (' + Math.round(bar380.tr) + ')');
   await page.screenshot({ path: path.join(OUT, 'bar-380.png') });
   await page.click('#hideBarBtn');
   await page.waitForFunction(() => document.querySelector('#bar').getBoundingClientRect().bottom <= 0, null, { timeout: 3000 }).catch(() => {});
+  await page.waitForFunction(() => document.querySelector('.mapctl.tr').getBoundingClientRect().top < 20, null, { timeout: 3000 }).catch(() => {});
+  const row380 = await page.evaluate(handleRow);
+  check(row380.sameRow && !row380.xOverlap, 'на 380 px табчето и "Сателит / Топо / Имена" са на един ред и не се застъпват: ' + row380.info);
   const ov2 = await page.evaluate(() => { const a = document.querySelector('#barHandle').getBoundingClientRect(), b = document.querySelector('#hideBarBtn').getBoundingClientRect(); return !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top); });
   check(await page.evaluate(() => document.body.classList.contains('bar-hidden')) && await page.isVisible('#barHandle') && !ov2, 'на 380 px: лентата скрита, табчето се вижда и не се застъпва с копчето за скриване');
   await page.screenshot({ path: path.join(OUT, 'bar-hidden-380.png') });
@@ -265,6 +297,20 @@ function check(ok, msg) { console.log((ok ? 'OK   ' : 'FAIL ') + msg); if (!ok) 
   await page.evaluate(() => document.querySelector('#panel').scrollIntoView());
   await page.screenshot({ path: path.join(OUT, 'panel-390.png') });
   await page.screenshot({ path: path.join(OUT, 'panel-390-full.png'), fullPage: true });
+
+  // Първият ред на лентата не прелива при никоя ширина; "Отмени" и плъзгачът винаги са на екрана.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  let sweepOk = true;
+  for (const w of [320, 380, 560, 561, 640, 700, 760, 761, 900, 1060, 1061, 1100, 1200, 1201, 1280, 1440]) {
+    await page.setViewportSize({ width: w, height: 800 });
+    const bad = await page.evaluate(barFits), u = await page.evaluate(vis, '#undoBtn'), t = await page.evaluate(vis, '#bar .tolRange');
+    const ok = bad.length === 0 && u.shown && u.l >= 0 && u.r <= w && t.shown && t.w >= 80 && t.l >= 0 && t.r <= w;
+    if (!ok || w === 900) check(ok, 'на ' + w + ' px лентата се побира, "Отмени" и плъзгачът са на екрана' + (bad.length ? ': ' + bad.join(', ') : ''));
+    if (!ok) { sweepOk = false; break; }
+  }
+  if (sweepOk) check(true, 'лентата се побира при 320-1440 px');
+  const tip = await page.evaluate(() => ({ x: document.documentElement.scrollWidth - innerWidth }));
+  check(tip.x <= 0, 'след обхождането няма хоризонтален скрол (' + tip.x + ')');
 
   check(errors.length === 0, 'конзолата е чиста' + (errors.length ? ': ' + errors.join(' | ') : ''));
   await browser.close();

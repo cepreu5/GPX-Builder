@@ -159,6 +159,7 @@ body.bar-hidden .bar { transform: translateY(-110%); }
 .tools { overflow-x: auto; scrollbar-width: none; padding-bottom: 1px; }
 .tools::-webkit-scrollbar { display: none; }
 .tools > * { flex-shrink: 0; }
+.tools .search { margin-left: auto; flex-shrink: 1; }
 .tol { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; white-space: nowrap; }
 .tol input { width: 120px; }
 .tol b { min-width: 44px; }
@@ -175,25 +176,23 @@ body.mode-remove .map-canvas { cursor: not-allowed; }
 
 .mapctl { position: absolute; z-index: 10; display: flex; gap: 6px; }
 .mapctl.tr { right: 10px; top: 96px; align-items: center; transition: top .18s ease; }
-body.bar-hidden .mapctl.tr { top: 10px; }
-/* Табче в средата на горния ръб - връща скритата лента */
+body.bar-hidden .mapctl.tr { top: calc(12px + env(safe-area-inset-top)); }
+/* Бутон "Лента" горе вляво, на реда на "Сателит / Топо / Имена" - връща скритата лента */
 .barhandle {
-  position: absolute; z-index: 25; left: 50%; top: 0; transform: translateX(-50%);
+  position: absolute; z-index: 25; left: 10px; top: calc(12px + env(safe-area-inset-top));
   display: inline-flex; align-items: center; justify-content: center; gap: 5px;
   min-width: 76px; min-height: 30px;
-  padding: calc(4px + env(safe-area-inset-top)) 12px 5px;
-  border: 1px solid var(--app-line-strong); border-top: 0;
-  border-radius: 0 0 var(--app-radius-sm) var(--app-radius-sm);
-  background: var(--app-surface); color: var(--app-ink);
-  box-shadow: var(--app-shadow-pop);
+  padding: 4px 12px;
+  border: 1px solid var(--app-line-strong);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-overlay); color: var(--app-ink);
+  box-shadow: var(--app-shadow);
   font: inherit; font-size: 12.5px; font-weight: 600; line-height: 1;
   cursor: pointer;
 }
 .barhandle span { font-size: 10px; }
 .barhandle:hover { border-color: var(--app-muted); }
 .barhandle:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 1px; }
-/* На тесен екран контролите горе вдясно слизат под табчето, за да не се застъпват */
-@media (max-width: 560px) { body.bar-hidden .mapctl.tr { top: calc(40px + env(safe-area-inset-top)); } }
 .mapctl.br { right: 10px; bottom: 26px; flex-direction: column; }
 .mapctl .btn.ico { background: var(--app-overlay); }
 .mapctl .chk { background: var(--app-overlay); border: 1px solid var(--app-line-strong); border-radius: var(--app-radius-sm); padding: 4px 8px; min-height: 30px; }
@@ -340,6 +339,15 @@ td .num, td.num { font-family: var(--app-mono); }
 
 /* Широки / тесни екрани */
 .wide-only { }
+/* "Отмени" и плъзгачът "Отклонение" са в първия ред на лентата при всяка ширина;
+   за да се съберат, по-рано се махат думите и по-редките копчета. */
+@media (max-width: 1200px) {
+  #bar .tol .tol-label, .wide { display: none; }
+  #bar .tol input { width: 92px; }
+}
+@media (max-width: 1060px) {
+  .wide-only { display: none; }
+}
 @media (max-width: 900px) {
   .search { flex-basis: 170px; }
   .logo-t { display: none; }
@@ -354,12 +362,14 @@ td .num, td.num { font-family: var(--app-mono); }
   .actions .tol input { flex: 1; }
   .opts { grid-template-columns: 1fr; }
 }
-@media (max-width: 560px) {
+@media (max-width: 760px) {
   .bar-row:first-child { flex-wrap: wrap; row-gap: 5px; }
   .route-name { flex: 1 1 60px; min-width: 60px; }
-  .search { order: 5; flex: 1 1 100%; }
   .mapctl.tr { top: 132px; }
   .pic-scroll { padding-top: 128px; }
+}
+@media (max-width: 560px) {
+  .tools .search { display: none; }
   .panel { padding: 10px 8px 30px; }
   .card { padding: 10px; }
   .follow-stats { grid-template-columns: repeat(2, 1fr); }
@@ -367,4 +377,9 @@ td .num, td.num { font-family: var(--app-mono); }
   .follow-stats > div:nth-child(-n+2) { border-bottom: 1px solid var(--app-line); }
   .cutbox { width: calc(100% - 70px); left: 10px; transform: none; }
   .lib-head input { width: 100%; margin-left: 0; }
+}
+@media (max-width: 360px) {
+  .route-name { min-width: 46px; }
+  #bar .tol input { width: 80px; }
+  #bar .tol b { min-width: 38px; }
 }

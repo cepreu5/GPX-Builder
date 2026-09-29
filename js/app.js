@@ -785,13 +785,13 @@
     else if (h.kind === 'cut') toast('Тази част е изрязана. Върни я от списъка "Изрязано от тракове" под картата.');
   }
   function toggleBar() { setBar(!document.body.classList.contains('bar-hidden')); }
-  // Скрива/връща горната лента; табчето горе се вижда само докато лентата е скрита.
+  // Скрива/връща горната лента; бутонът "Лента" горе вляво се вижда само докато лентата е скрита.
   function setBar(hide) {
     document.body.classList.toggle('bar-hidden', hide);
     $('#barHandle').hidden = !hide;
     if (hide && !U.LS.get('barHint', false)) {
       U.LS.set('barHint', true);
-      toast('Лентата се скри - цъкни табчето горе или празно място на картата, за да я върнеш.', false, 6000);
+      toast('Лентата се скри - цъкни бутона „Лента“ горе вляво или празно място на картата, за да я върнеш.', false, 6000);
     }
   }
 
