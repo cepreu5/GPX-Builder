@@ -144,7 +144,7 @@
       <button class="btn" data-act="follow">Следене</button>
       <label class="tol">Отклонение <input type="range" class="tolRange" min="5" max="100" step="5" value="20" aria-label="Максимално допустимо отклонение"> <b class="num tolVal">20 м</b></label>
     </div>
-    <p class="hint">Клик върху сегмент го слага в маршрута като следваща част; клик върху × маха дубликата, а същият клик го връща. Посочването на ред в списъка светва същия сегмент на картата.</p>
+    <p class="hint">Клик върху сегмент го слага в маршрута като следваща част; дублиращите се участъци са извън маршрута, а общата отсечка между две части се минава веднъж. Посочването на ред в списъка светва същия сегмент на картата.</p>
   </section>
 
   <div class="cols">
@@ -171,20 +171,10 @@
           <button class="btn sm" data-act="export-collection">Изнеси колекцията</button>
         </div>
       </section>
-      <section class="card">
-        <h2>Намерени дублиращи се участъци <span class="num muted" id="dupsCount">(0)</span></h2>
-        <p class="muted small">Участък се брои за дубликат, ако минава по-близо от <b class="tolVal">20 м</b> до вече приетото трасе. Отметнатите с ✓ излизат от новия маршрут; редът с × остава. Същото става с един клик върху маркировката на картата.</p>
-        <div class="scroll-x">
-          <table class="dups">
-            <thead><tr><th></th><th>Участък</th><th class="r">Дължина</th><th>Съвпада с</th><th>Посока</th></tr></thead>
-            <tbody id="dupsBody"></tbody>
-          </table>
-        </div>
-        <div class="row">
-          <button class="btn sm" data-act="dups-keep-all">Откажи всички</button>
-          <button class="btn sm" data-act="dups-skip-all">Приеми всички</button>
-          <span class="muted small" id="dupsSkipped"></span>
-        </div>
+      <section class="card" id="dupsCard">
+        <h2>Дубликати</h2>
+        <p class="dups-sum small" id="dupsSkipped">Пропуснати дубликати: 0 участъка · 0 км</p>
+        <p class="muted small">Участък, който минава по-близо от <b class="tolVal">20 м</b> до вече приетото трасе, излиза от маршрута. Кое се брои за дубликат се сменя с плъзгача "Отклонение" в лентата.</p>
       </section>
       <section class="card" id="cutsCard">
         <h2>Изрязано от тракове <span class="num muted" id="cutsCount">(0)</span></h2>

@@ -53,9 +53,8 @@
   /* Анализ на колекцията. Траковете се обхождат по реда на добавяне; точка е дубликат,
      ако лежи по-близо от tol до вече приетото трасе (по-ранни тракове или по-ранна част
      от същия трак), независимо от посоката. */
-  function analyze(tracks, tol, overrides) {
+  function analyze(tracks, tol) {
     tol = Math.max(1, tol || 20);
-    overrides = overrides || [];
     var live = tracks.filter(function (t) { return t.pts && t.pts.length > 1; });
     live.forEach(prep);
     var lat0 = 0, cnt = 0;
@@ -203,9 +202,6 @@
             s.withA = ds.length ? Math.min.apply(null, ds) : 0;
             s.withB = ds.length ? Math.max.apply(null, ds) : 0;
             s.dir = ds.length > 1 && ds[ds.length - 1] < ds[0] ? 'обратна' : 'същата';
-            s.kept = overrides.some(function (o) {
-              return o.trackId === t.id && overlap(s.a, s.b, o.a, o.b) > 0.5 * Math.min(s.len, o.b - o.a);
-            });
           }
           sections.push(s);
         });
@@ -218,7 +214,7 @@
       result.byTrack[t.id] = sections;
       sections.forEach(function (s) {
         if (s.kind === 'dup') result.dups.push(s);
-        if (s.kind === 'part' || (s.kind === 'dup' && s.kept)) result.parts.push(s);
+        if (s.kind === 'part') result.parts.push(s);
       });
     });
     return result;
@@ -267,14 +263,14 @@
   }
   function nearestOnTrack(t, lat, lon) { prep(t); return nearestOn(t.pts, t._cum, lat, lon); }
 
-  // Каква част от [a,b] на трака е под дубликат (неприет) или изрязване.
+  // Каква част от [a,b] на трака е под дубликат или изрязване.
   function invalidShare(item, analysis) {
     var secs = analysis.byTrack[item.trackId];
     if (!secs) return { share: 1, why: 'тракът липсва' };
     var a = Math.min(item.a, item.b), b = Math.max(item.a, item.b), len = b - a || 1;
     var dupL = 0, cutL = 0;
     secs.forEach(function (s) {
-      if (s.kind === 'dup' && !s.kept) dupL += overlap(a, b, s.a, s.b);
+      if (s.kind === 'dup') dupL += overlap(a, b, s.a, s.b);
       if (s.kind === 'cut') cutL += overlap(a, b, s.a, s.b);
     });
     // Изрязване, което засяга частта, я маркира винаги; дубликат - ако покрива осезаема част от нея.
@@ -282,9 +278,38 @@
     return { bad: bad, share: (dupL + cutL) / len, why: cutL > 20 ? 'изрязана' : 'дубликат' };
   }
 
+  /* Махнат дубликат, който свързва края на една част с началото на следващата: лежи
+     върху трака на едната от тях и краищата му са при двата края (в двете посоки).
+     Връща точките на общата отсечка, подредени от края на предишната част нататък. */
+  function sharedLink(prev, next, analysis, tracksById, tol) {
+    var e = prev.pts[prev.pts.length - 1], s = next.pts[0], best = null;
+    var ids = [prev.item.trackId];
+    if (next.item.trackId !== prev.item.trackId) ids.push(next.item.trackId);
+    ids.forEach(function (id) {
+      var t = tracksById[id];
+      if (!t) return;
+      (analysis.byTrack[id] || []).forEach(function (d) {
+        if (d.kind !== 'dup') return;
+        var p0 = pointAt(t, d.a), p1 = pointAt(t, d.b);
+        [[p0, p1, false], [p1, p0, true]].forEach(function (c) {
+          var de = U.hav(e[0], e[1], c[0][0], c[0][1]), ds = U.hav(s[0], s[1], c[1][0], c[1][1]);
+          if (de <= tol && ds <= tol && (!best || de + ds < best.score)) {
+            best = { score: de + ds, trackId: id, a: d.a, b: d.b, rev: c[2] };
+          }
+        });
+      });
+    });
+    if (!best) return null;
+    var pts = slice(tracksById[best.trackId], best.a, best.b);
+    if (best.rev) pts.reverse();
+    return { item: { type: 'shared', trackId: best.trackId, a: best.a, b: best.b, rev: best.rev }, pts: pts };
+  }
+
   /* Геометрия на маршрута: всяка част дава своите точки; чертаните участъци свързват
-     съседите си; дупка се отчита само между две съседни части от тракове. */
-  function routeGeometry(route, tracksById) {
+     съседите си; дупка се отчита само между две съседни части от тракове. Ако между
+     тях лежи махнат дубликат (общата отсечка), маршрутът минава през него веднъж:
+     вмъква се елемент {type:'shared'} с idx null, който не е в route.items. */
+  function routeGeometry(route, tracksById, analysis) {
     var items = [], all = [];
     (route.items || []).forEach(function (it, idx) {
       var pts = [];
@@ -299,18 +324,25 @@
       }
       items.push({ idx: idx, item: it, pts: pts, missing: it.type === 'part' && !tracksById[it.trackId] });
     });
-    var gaps = [];
+    var gaps = [], out = [];
     var prev = null;
+    var tol = Math.max(ROUTE_GAP, analysis ? analysis.tol * 1.5 : 0);
     items.forEach(function (g) {
-      if (g.item.type === 'draw') { g.connected = true; prev = g.pts.length ? g : { draw: true }; return; }
-      if (!g.pts.length) return;
+      if (g.item.type === 'draw') { g.connected = true; prev = g.pts.length ? g : { draw: true }; out.push(g); return; }
+      if (!g.pts.length) { out.push(g); return; }
       if (prev && !prev.draw && prev.pts && prev.pts.length) {
         var e = prev.pts[prev.pts.length - 1], s = g.pts[0];
         var d = U.hav(e[0], e[1], s[0], s[1]);
-        if (d > ROUTE_GAP) gaps.push({ beforeIdx: g.idx, afterIdx: prev.idx, d: d, from: e, to: s });
+        if (d > ROUTE_GAP) {
+          var link = analysis && sharedLink(prev, g, analysis, tracksById, tol);
+          if (link) out.push({ idx: null, shared: true, item: link.item, pts: link.pts });
+          else gaps.push({ beforeIdx: g.idx, afterIdx: prev.idx, d: d, from: e, to: s });
+        }
       }
+      out.push(g);
       prev = g;
     });
+    items = out;
     items.forEach(function (g) {
       g.start = all.length;
       g.pts.forEach(function (p) {
