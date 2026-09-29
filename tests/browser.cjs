@@ -334,6 +334,13 @@ function barFits() {
   await p2.waitForFunction(() => __gpxk.S.tracks.length === 3);
   const secY = await p2.evaluate(() => __gpxk.A.byTrack[__gpxk.S.tracks[2].id].filter(s => s.kind !== 'gap').map(s => s.kind));
   check(JSON.stringify(secY) === '["part","dup","part"]', 'трак Y: част, дубликат, част ' + JSON.stringify(secY));
+  // Пръстените се виждат от самото начало, без посочване: там, където Y се събира с X, и там, където се дели.
+  const ringsAt = () => p2.evaluate(() => {
+    const t = __gpxk.S.tracks[2], d = __gpxk.A.dups[0], m = __gpxk.map;
+    return [d.a, d.b].map(x => { const p = window.Core.pointAt(t, x), q = m.project(p[0], p[1]); const r = (__gpxk.ui.rings || []).filter(r => Math.hypot(r.x - q.x, r.y - q.y) < 12)[0]; return r ? { sel: r.selected, onScreen: r.x >= 0 && r.y >= 0 && r.x <= m.w && r.y <= m.h } : null; });
+  });
+  let rings = await ringsAt();
+  check(rings.every(r => r && r.onScreen && !r.sel), 'пръстен на двете места още преди маршрута (неизбрани): ' + JSON.stringify(rings));
   // Клик върху първата част на Y, после върху частта на Z (различни тракове).
   const ptOf = (ti, kind, k, f) => p2.evaluate(([ti, kind, k, f]) => { const t = __gpxk.S.tracks[ti], s = __gpxk.A.byTrack[t.id].filter(x => x.kind === kind)[k]; const p = window.Core.pointAt(t, s.a + (s.b - s.a) * f); return __gpxk.map.project(p[0], p[1]); }, [ti, kind, k, f]);
   let q = await ptOf(2, 'part', 0, 0.4);
@@ -362,6 +369,36 @@ function barFits() {
   check(after.items === before && !after.hidden && after.dups === 1 && !after.kept, 'клик върху махнат дубликат: маршрутът не се пипа, дубликатът не се връща');
   await p2.evaluate(() => { const G = __gpxk.G, b = U.boundsOf([G.pts]); __gpxk.map.setView((b.s + b.n) / 2, (b.w + b.e) / 2, 14); });
   await p2.screenshot({ path: path.join(OUT, 'shared-1280.png') });
+  rings = await ringsAt();
+  check(rings.every(r => r && r.onScreen && r.sel), 'маршрутът минава през двете точки: пръстените са избрани: ' + JSON.stringify(rings));
+  const routeOf = () => p2.evaluate(() => { const G = __gpxk.G, r = __gpxk.S.routes.find(x => x.id === __gpxk.S.curId), T = __gpxk.S.tracks, e = G.pts[G.pts.length - 1];
+    const endOf = t => U.hav(e[0], e[1], t.pts[t.pts.length - 1][0], t.pts[t.pts.length - 1][1]);
+    return { items: r.items.map(i => T.findIndex(t => t.id === i.trackId)), endY: endOf(T[2]), endZ: endOf(T[1]), gaps: G.gaps.length, count: G.count, forks: (r.forks || []).length, shared: G.items.filter(g => g.shared).length }; });
+  // Клик върху клона на Y след точката на деленето: маршрутът продължава по Y, не по Z.
+  q = await ptOf(2, 'part', 1, 0.5);
+  await p2.mouse.click(q.x, q.y);
+  let rt = await routeOf();
+  check(JSON.stringify(rt.items) === '[2,2]' && rt.endY < 5 && rt.gaps === 0 && rt.shared === 1 && rt.count === 2 && rt.forks === 1, 'клик върху клона на Y: посоката е сменена, маршрутът свършва в края на Y ' + JSON.stringify(rt));
+  rings = await ringsAt();
+  check(rings.every(r => r && r.sel), 'след смяната пръстените остават избрани');
+  // Клик върху Z го връща.
+  q = await ptOf(1, 'part', 0, 0.6);
+  await p2.mouse.click(q.x, q.y);
+  rt = await routeOf();
+  check(JSON.stringify(rt.items) === '[2,1]' && rt.endZ < 5 && rt.gaps === 0, 'клик върху Z: посоката пак е по Z ' + JSON.stringify(rt));
+  // "Отмени" връща избора на Y.
+  await p2.click('#undoBtn');
+  rt = await routeOf();
+  check(JSON.stringify(rt.items) === '[2,2]' && rt.endY < 5, '"Отмени" връща посоката по Y');
+  // Изборът се пази след презареждане.
+  await p2.evaluate(() => new Promise(res => { const id = __gpxk.S.curId, yId = __gpxk.S.tracks[2].id; const tick = () => U.DB.get('collection').then(d => { const r = d && d.routes.find(x => x.id === id); if (r && r.items.length === 2 && r.items[1].trackId === yId && r.forks && r.forks.length === 1) res(); else setTimeout(tick, 100); }); tick(); }));
+  await p2.reload();
+  await p2.waitForFunction(() => window.__gpxk && window.__gpxk.ready && __gpxk.S.tracks.length === 3);
+  rt = await routeOf();
+  check(JSON.stringify(rt.items) === '[2,2]' && rt.endY < 5 && rt.forks === 1 && rt.gaps === 0, 'след презареждане маршрутът минава по същия клон ' + JSON.stringify(rt));
+  const exp = await p2.evaluate(() => { const r = __gpxk.S.routes.find(x => x.id === __gpxk.S.curId); return JSON.stringify(r.forks); });
+  check(/"alts"/.test(exp), 'изборът е в състоянието на маршрута (forks)');
+  await p2.screenshot({ path: path.join(OUT, 'forks-1280.png') });
   await ctx2.close();
 
   check(errors.length === 0, 'конзолата е чиста' + (errors.length ? ': ' + errors.join(' | ') : ''));

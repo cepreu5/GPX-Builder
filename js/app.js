@@ -106,14 +106,15 @@
       if (data.curId && routes.some(function (r) { return r.id === data.curId; })) S.curId = data.curId;
     }
     S.tracks.forEach(function (t) { delete t._cum; });
-    S.routes.forEach(function (r) { r.walks = r.walks || []; r.items = r.items || []; });
+    S.routes.forEach(function (r) { r.walks = r.walks || []; r.items = r.items || []; r.forks = r.forks || []; });
   }
 
   // ---- Отмяна ----
   function pushUndo() {
     ui.undo.push(JSON.stringify({
       rid: S.curId, items: cur().items,
-      cuts: S.tracks.map(function (t) { return [t.id, t.cuts || []]; })
+      cuts: S.tracks.map(function (t) { return [t.id, t.cuts || []]; }),
+      forks: cur().forks || []
     }));
     if (ui.undo.length > 100) ui.undo.shift();
     $('#undoBtn').disabled = false;
@@ -124,7 +125,7 @@
     if (!s) return;
     s = JSON.parse(s);
     var r = S.routes.filter(function (x) { return x.id === s.rid; })[0];
-    if (r) { r.items = s.items; S.curId = r.id; }
+    if (r) { r.items = s.items; r.forks = s.forks || []; S.curId = r.id; }
     s.cuts.forEach(function (c) { var t = track(c[0]); if (t) t.cuts = c[1]; });
     ui.cut = null; ui.sel = null; ui.drawTarget = null;
     hidePointMenu();
@@ -213,7 +214,7 @@
 
   var C = {};
   function refreshColors() {
-    ['route-a', 'route-b', 'casing', 'dup', 'gap', 'cut', 'pos', 'walked', 'accent', 'map-bg', 'ink', 'surface', 'ok', 'warn', 'danger', 'muted', 'line', 'accent-soft', 'track-1', 'track-2', 'track-3', 'track-4', 'track-5', 'track-6', 'track-7', 'track-8'].forEach(function (k) {
+    ['route-a', 'route-b', 'casing', 'dup', 'junction', 'gap', 'cut', 'pos', 'walked', 'accent', 'map-bg', 'ink', 'surface', 'ok', 'warn', 'danger', 'muted', 'line', 'accent-soft', 'track-1', 'track-2', 'track-3', 'track-4', 'track-5', 'track-6', 'track-7', 'track-8'].forEach(function (k) {
       C[k] = U.cssVar('--app-' + k);
     });
     if (map) map.redraw();
@@ -231,6 +232,7 @@
       if (g.item.type === 'draw' && g.pts.length) g.len = U.lengthOf(routeSpan(g, gi));
     });
     G.count = n;
+    G.forks = Core.routeForks(G, A.junctions, S.tol, byId());
   }
 
   function path(ctx, pr, pts) {
@@ -269,6 +271,43 @@
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(255,255,255,0.92)'; ctx.strokeText(text, x, y);
     ctx.fillStyle = color || '#1f1d1a'; ctx.fillText(text, x, y);
+  }
+
+  // Първите метри от клона след точката на прекъсване.
+  function branchStub(t, br) {
+    var L = Math.min(300, br.b - br.a);
+    return br.from === 'a' ? Core.slice(t, br.a, br.a + L) : Core.slice(t, br.b - L, br.b);
+  }
+  function forkOf(j) { return (G && G.forks || []).filter(function (f) { return f.j === j; })[0]; }
+  function drawForks(ctx, m, pr, tb, hv) {
+    var drawn = [];
+    // Клоновете: избраният се подчертава, другите се приглушават; при посочване светват всички.
+    (A.junctions || []).forEach(function (j) {
+      var f = forkOf(j), hot = hv && hv.kind === 'fork' && hv.j === j;
+      if (!hot && !(f && f.chosen >= 0)) return;
+      j.branches.forEach(function (br, bi) {
+        var t = tb[br.trackId]; if (!t || f && bi === f.incoming) return;
+        path(ctx, pr, branchStub(t, br));
+        if (hot || bi === f.chosen) { ctx.globalAlpha = 0.4; stroke(ctx, C.junction, 12); ctx.globalAlpha = 1; }
+        else { ctx.globalAlpha = 0.7; stroke(ctx, C.casing, 6); ctx.globalAlpha = 1; stroke(ctx, C.muted, 2.5, [4, 5]); }
+      });
+    });
+    (A.junctions || []).forEach(function (j) {
+      var q = pr(j.lat, j.lon);
+      if (q[0] < -20 || q[1] < -20 || q[0] > m.w + 20 || q[1] > m.h + 20) return;
+      var f = forkOf(j), sel = !!(f && f.chosen >= 0), hot = hv && hv.kind === 'fork' && hv.j === j;
+      var r = sel ? 10 : 7;
+      if (hot) r += 2;
+      ctx.beginPath(); ctx.arc(q[0], q[1], r, 0, Math.PI * 2);
+      ctx.fillStyle = sel ? C.junction : C.casing; ctx.fill();
+      ctx.lineWidth = sel ? 2.5 : 3; ctx.strokeStyle = sel ? C.casing : C.junction; ctx.stroke();
+      if (sel) {
+        ctx.beginPath(); ctx.moveTo(q[0] - 4, q[1] - 2); ctx.lineTo(q[0], q[1] + 3); ctx.lineTo(q[0] + 4, q[1] - 2);
+        stroke(ctx, C.casing, 2);
+      }
+      drawn.push({ key: j.key, x: q[0], y: q[1], selected: sel });
+    });
+    ui.rings = drawn;
   }
 
   function drawMap(ctx, m) {
@@ -346,6 +385,9 @@
         });
       }
     }
+
+    // Точки на прекъсване: пръстен на всяко място, където се събират или пресичат приети участъци.
+    if (!following) drawForks(ctx, m, pr, tb, hv);
 
     // 3. Дупки между частите.
     if (G && !following) {
@@ -506,6 +548,11 @@
     var v = hitVertex(p);
     if (v) return v;
     var best = null;
+    (A.junctions || []).forEach(function (j) {
+      var q = pr(j.lat, j.lon), d = Math.hypot(q[0] - p.x, q[1] - p.y);
+      if (d <= 11 && (!best || d < best.d)) best = { kind: 'fork', j: j, d: d };
+    });
+    if (best) return best;
     if (G) {
       G.gaps.forEach(function (gp) {
         var r = screenDist(pr, [gp.from, gp.to], p.x, p.y);
@@ -537,13 +584,19 @@
     if (h.kind === 'part') {
       var t = tb[h.sec.trackId];
       var inR = findItemFor(h.sec) >= 0;
+      var fk = inR ? null : forkFor(h.sec);
       return U.esc(trackLabel(t)) + ' · ' + kmRange(h.sec.a, h.sec.b) + ' · <b>' + U.km(h.sec.len) + '</b><br>' +
-        (inR ? 'Вече е в маршрута. Клик я маха' : 'Клик я слага в маршрута като част ' + (G.count + 1));
+        (inR ? 'Вече е в маршрута. Клик я маха' : fk ? 'Клик: от точката на прекъсване маршрутът продължава по този клон' : 'Клик я слага в маршрута като част ' + (G.count + 1));
     }
     if (h.kind === 'item') {
       return 'Част ' + h.g.no + ' · <b>' + U.km(h.g.len) + '</b>' + (h.g.bad ? '<br>Вече не е валидна (' + h.g.badWhy + '). Клик я маха' : '<br>Клик я маха от маршрута');
     }
     if (h.kind === 'gap') return 'дупка <b>' + U.dist(h.gap.d) + '</b><br>Клик: затвори с чертаене';
+    if (h.kind === 'fork') {
+      var f = forkOf(h.j);
+      return 'Точка на прекъсване · ' + h.j.branches.length + ' клона<br>' +
+        (f && f.chosen >= 0 ? 'Клик върху клона, по който да продължи, сменя посоката' : 'Клик върху клон го слага в маршрута');
+    }
     if (h.kind === 'vertex') return 'Точка · клик за име или махане';
     if (h.kind === 'cut') return 'Изрязано · върни го от списъка под картата';
     return '';
@@ -561,7 +614,7 @@
         var nt = nearestTrack(p2, 16);
         h = nt ? { kind: 'cuthint' } : null;
       }
-      var changed = JSON.stringify(h && [h.kind, h.idx, h.pi, h.sec && h.sec.key]) !== JSON.stringify(ui.hover && [ui.hover.kind, ui.hover.idx, ui.hover.pi, ui.hover.sec && ui.hover.sec.key]);
+      var changed = JSON.stringify(h && [h.kind, h.idx, h.pi, h.sec && h.sec.key, h.j && h.j.key]) !== JSON.stringify(ui.hover && [ui.hover.kind, ui.hover.idx, ui.hover.pi, ui.hover.sec && ui.hover.sec.key, ui.hover.j && ui.hover.j.key]);
       ui.hover = h;
       map.canvas.classList.toggle('hot', !!h && h.kind !== 'none');
       if (h && h.kind !== 'cuthint' && h.kind !== 'none') {
@@ -617,6 +670,24 @@
     cur().items.splice(idx, 1);
     if (ui.drawTarget != null && ui.drawTarget >= idx) ui.drawTarget = ui.drawTarget === idx ? null : ui.drawTarget - 1;
     toast((g && g.no ? 'Част ' + g.no : 'Участъкът') + ' е махнат от маршрута. "Отмени" го връща.');
+    routeChanged();
+  }
+  // Клон на точка на прекъсване, през която маршрутът вече продължава по друг клон.
+  function forkFor(sec) {
+    var res = null;
+    (G && G.forks || []).forEach(function (f) {
+      if (res || f.atEnd || f.atStart) return;
+      f.j.branches.forEach(function (br, bi) {
+        if (!res && br.key === sec.key && bi !== f.chosen && bi !== f.incoming) res = { fork: f, br: br };
+      });
+    });
+    return res;
+  }
+  function switchFork(fk) {
+    pushUndo();
+    Core.switchFork(cur(), fk.fork, fk.br, byId(), S.tol);
+    ui.drawTarget = null;
+    toast('Посоката е сменена: оттук по ' + trackLabel(track(fk.br.trackId)) + '. "Отмени" връща старата.');
     routeChanged();
   }
   function closeGap(gp) {
@@ -732,7 +803,10 @@
     var h = hitTest(p);
     if (!h) { toggleBar(); return; }
     if (h.kind === 'none') return;
-    if (h.kind === 'part') addPart(h.sec);
+    if (h.kind === 'fork') { toast('Цъкни върху клона, по който маршрутът да продължи оттук'); return; }
+    var fk = h.kind === 'part' && findItemFor(h.sec) < 0 ? forkFor(h.sec) : null;
+    if (fk) switchFork(fk);
+    else if (h.kind === 'part') addPart(h.sec);
     else if (h.kind === 'item') removeItem(h.idx);
     else if (h.kind === 'gap') closeGap(h.gap);
     else if (h.kind === 'vertex') showPointMenu(h);
