@@ -162,7 +162,8 @@ body.bar-hidden .bar { transform: translateY(-110%); }
 .tools > * { flex-shrink: 0; }
 .tools .search { margin-left: auto; flex-shrink: 1; }
 .tol { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; white-space: nowrap; }
-.tol input { width: 120px; }
+.tol .tolInput { width: 4.2em; min-height: 30px; padding: 3px 6px; text-align: right; font-family: var(--app-mono); font-variant-numeric: tabular-nums; }
+.tol .tol-unit { color: var(--app-muted); }
 .tol b { min-width: 44px; }
 .follow-row { font-size: 13px; }
 
@@ -338,11 +339,10 @@ td .num, td.num { font-family: var(--app-mono); }
 
 /* Широки / тесни екрани */
 .wide-only { }
-/* "Отмени" и плъзгачът "Отклонение" са в първия ред на лентата при всяка ширина;
+/* "Отмени" и полето "Отклонение" са в първия ред на лентата при всяка ширина;
    за да се съберат, по-рано се махат думите и по-редките копчета. */
 @media (max-width: 1200px) {
   #bar .tol .tol-label, .wide { display: none; }
-  #bar .tol input { width: 92px; }
 }
 @media (max-width: 1060px) {
   .wide-only { display: none; }
@@ -358,7 +358,6 @@ td .num, td.num { font-family: var(--app-mono); }
   .stats > div:nth-child(4n) { border-right: 0; }
   .wide-only, .wide { display: none; }
   .actions .tol { margin-left: 0; width: 100%; }
-  .actions .tol input { flex: 1; }
   .opts { grid-template-columns: 1fr; }
 }
 @media (max-width: 760px) {
@@ -379,6 +378,5 @@ td .num, td.num { font-family: var(--app-mono); }
 }
 @media (max-width: 360px) {
   .route-name { min-width: 46px; }
-  #bar .tol input { width: 80px; }
   #bar .tol b { min-width: 38px; }
 }

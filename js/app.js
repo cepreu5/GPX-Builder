@@ -93,7 +93,7 @@
     if (!merge) {
       // Старите колекции може да носят поле overrides (върнати дубликати) - то се пренебрегва.
       S.tracks = tracks; S.routes = routes;
-      S.tol = +data.tol || 20; S.curId = data.curId || null;
+      S.tol = data.tol != null && isFinite(+data.tol) ? +data.tol : 20; S.curId = data.curId || null;
     } else {
       tracks.forEach(function (t) {
         var i = S.tracks.findIndex(function (x) { return x.id === t.id; });
@@ -1614,9 +1614,9 @@
   // ---- Връзки с интерфейса ----
   function setTol(v) {
     S.tol = v;
-    $$('.tolRange').forEach(function (r) { if (+r.value !== v) r.value = v; });
+    $$('.tolInput').forEach(function (r) { if (r.value !== String(v)) r.value = v; });
     $$('.tolVal').forEach(function (b) { b.textContent = v + ' м'; });
-    analyzeSoon();
+    analyzeNow();
   }
   function onAction(act, el) {
     switch (act) {
@@ -1664,7 +1664,19 @@
     $('#labelsToggle').addEventListener('change', function (e) { ui.labels = e.target.checked; U.LS.set('labels', ui.labels); applyLayers(); });
     $('#gradeToggle').checked = ui.grade;
     $('#gradeToggle').addEventListener('change', function (e) { ui.grade = e.target.checked; U.LS.set('grade', ui.grade); drawProfile(); });
-    $$('.tolRange').forEach(function (r) { r.addEventListener('input', function () { setTol(+r.value); }); });
+    // Отклонение: до 3 цифри (0-999 м); прилага се с Enter или при излизане от полето.
+    $$('.tolInput').forEach(function (r) {
+      r.addEventListener('input', function () { var c = r.value.replace(/\D/g, '').slice(0, 3); if (c !== r.value) r.value = c; });
+      function apply() {
+        var v = parseInt(r.value, 10);
+        if (isNaN(v)) { r.value = S.tol; return; }
+        v = Math.max(0, Math.min(999, v));
+        if (v !== S.tol) setTol(v); else r.value = v;
+      }
+      r.addEventListener('change', apply);
+      r.addEventListener('blur', apply);
+      r.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); apply(); } });
+    });
     $$('#followBar [data-view]').forEach(function (b) { b.addEventListener('click', function () { showPic(b.dataset.view === 'pic'); }); });
 
     $('#routeName').addEventListener('input', function (e) {
@@ -1847,7 +1859,7 @@
       }
     }).catch(function () { /* празна колекция */ }).then(function () {
       S.tracks.forEach(function (t) { if (t.color == null) t.color = nextColor(); });
-      $$('.tolRange').forEach(function (r) { r.value = S.tol; });
+      $$('.tolInput').forEach(function (r) { r.value = S.tol; });
       $$('.tolVal').forEach(function (b) { b.textContent = S.tol + ' м'; });
       cur();
       analyzeNow();

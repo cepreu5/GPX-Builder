@@ -54,7 +54,7 @@
      ако лежи по-близо от tol до вече приетото трасе (по-ранни тракове или по-ранна част
      от същия трак), независимо от посоката. */
   function analyze(tracks, tol) {
-    tol = Math.max(1, tol || 20);
+    tol = Math.max(1, tol == null ? 20 : tol);
     var live = tracks.filter(function (t) { return t.pts && t.pts.length > 1; });
     live.forEach(prep);
     var lat0 = 0, cnt = 0;

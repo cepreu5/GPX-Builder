@@ -96,17 +96,27 @@ function barFits() {
   check(/^Пропуснати дубликати: 1 участък · /.test(dsum.text) && dsum.text.endsWith(dsum.skip), 'обобщение на дубликатите: ' + dsum.text + ' (Пропуснати ' + dsum.skip + ')');
   check(!dsum.table && dsum.btns === 0 && !dsum.kept && !dsum.over, 'няма таблица, бутони, kept и overrides');
 
-  // Плъзгач за отклонение: 40 м - обратният трак на 35 м става дубликат.
-  await page.evaluate(() => { const r = document.querySelector('.tolRange'); r.value = 40; r.dispatchEvent(new Event('input', { bubbles: true })); });
-  await page.waitForFunction(() => __gpxk.A.tol === 40);
+  // Поле за отклонение (до 3 цифри, без плъзгач): 40 м + Enter - обратният трак на 35 м става дубликат.
+  const tf = await page.evaluate(() => { const i = document.querySelector('#bar .tolInput'); return { ok: !!i, type: i && i.type, max: i && i.maxLength, mode: i && i.inputMode, ranges: document.querySelectorAll('input[type="range"]').length, val: i && i.value }; });
+  check(tf.ok && tf.type === 'text' && tf.max === 3 && tf.mode === 'numeric' && tf.ranges === 0 && tf.val === '20', 'в лентата е поле за число (до 3 цифри), плъзгач няма: ' + JSON.stringify(tf));
+  await page.fill('#bar .tolInput', '');
+  await page.type('#bar .tolInput', '9x9912');
+  check(await page.inputValue('#bar .tolInput') === '999', 'полето приема само цифри и най-много 3: ' + await page.inputValue('#bar .tolInput'));
+  await page.fill('#bar .tolInput', '40');
+  check(await page.evaluate(() => __gpxk.A.tol === 20), 'без Enter картата още не се преизчислява');
+  await page.press('#bar .tolInput', 'Enter');
+  await page.waitForFunction(() => __gpxk.A.tol === 40 && __gpxk.S.tol === 40, null, { timeout: 3000 }).catch(() => {});
   const d40 = await page.evaluate(() => __gpxk.A.dups.map(d => ({ own: d.trackId === __gpxk.S.tracks[2].id, dir: d.dir })));
-  check(d40.some(d => d.own && d.dir === 'обратна'), 'при 40 м: обратният трак се маркира като съвпадащ, в обратна посока');
-  check(/40 м/.test(await page.textContent('#bar .tolVal')), 'стойността на плъзгача се показва');
-  await page.evaluate(() => { const r = document.querySelector('.tolRange'); r.value = 20; r.dispatchEvent(new Event('input', { bubbles: true })); });
-  await page.waitForFunction(() => __gpxk.A.tol === 20);
-  const lay = await page.evaluate(() => { const f = document.querySelector('#searchForm'), seg = document.querySelector('#tools .seg'); return { inTools: f.parentElement.id === 'tools', right: f.getBoundingClientRect().left >= seg.getBoundingClientRect().right, undoRow1: document.querySelector('#undoBtn').parentElement === document.querySelector('#bar .bar-row:first-child'), tolRow1: document.querySelector('#bar .tolRange').closest('.bar-row') === document.querySelector('#bar .bar-row:first-child'), firstTol: document.querySelector('.tolRange').closest('#bar') !== null }; });
+  check(d40.some(d => d.own && d.dir === 'обратна'), '40 + Enter: картата се преизчислява, обратният трак се маркира като съвпадащ, в обратна посока');
+  check(await page.evaluate(() => Array.from(document.querySelectorAll('.tolInput')).every(i => i.value === '40') && /40 м/.test(document.querySelector('#dupsCard .tolVal').textContent)), 'стойността се показва навсякъде');
+  // Връщане на 20 при излизане от полето (Tab).
+  await page.fill('#bar .tolInput', '20');
+  await page.press('#bar .tolInput', 'Tab');
+  await page.waitForFunction(() => __gpxk.A.tol === 20, null, { timeout: 3000 }).catch(() => {});
+  check(await page.evaluate(() => __gpxk.A.tol === 20), 'при излизане от полето: 20 м, картата се преизчислява');
+  const lay = await page.evaluate(() => { const f = document.querySelector('#searchForm'), seg = document.querySelector('#tools .seg'); return { inTools: f.parentElement.id === 'tools', right: f.getBoundingClientRect().left >= seg.getBoundingClientRect().right, undoRow1: document.querySelector('#undoBtn').parentElement === document.querySelector('#bar .bar-row:first-child'), tolRow1: document.querySelector('#bar .tolInput').closest('.bar-row') === document.querySelector('#bar .bar-row:first-child'), firstTol: document.querySelector('.tolInput').closest('#bar') !== null }; });
   check(await page.isVisible('#searchForm') && lay.inTools && lay.right, 'на 1280 px търсенето се вижда, във втория ред, вдясно от режимите');
-  check(lay.undoRow1 && lay.tolRow1 && lay.firstTol, '"Отмени" и плъзгачът са в първия ред (плъзгачът в лентата е първият .tolRange)');
+  check(lay.undoRow1 && lay.tolRow1 && lay.firstTol, '"Отмени" и полето "Отклонение" са в първия ред (полето в лентата е първото .tolInput)');
 
   // Скриване на лентата с цъкане на празно място и връщане с табчето горе.
   check(await page.isHidden('#barHandle'), 'лентата се вижда: табчето горе е скрито');
@@ -274,9 +284,9 @@ function barFits() {
   await page.waitForFunction(() => document.querySelector('#bar').getBoundingClientRect().top >= 0, null, { timeout: 3000 }).catch(() => {});
   const nb = await page.evaluate(() => { const r = document.querySelector('#hideBarBtn').getBoundingClientRect(); return { l: r.left, r: r.right, w: r.width }; });
   check(await page.isVisible('#hideBarBtn') && nb.w > 0 && nb.l >= 0 && nb.r <= 380, 'на 380 px копчето за скриване се вижда (' + Math.round(nb.l) + '-' + Math.round(nb.r) + ' px)');
-  const u380 = await page.evaluate(vis, '#undoBtn'), t380 = await page.evaluate(vis, '#bar .tolRange'), s380 = await page.evaluate(vis, '#searchForm');
+  const u380 = await page.evaluate(vis, '#undoBtn'), t380 = await page.evaluate(vis, '#bar .tolInput'), s380 = await page.evaluate(vis, '#searchForm');
   check(u380.shown && u380.l >= 0 && u380.r <= 380, 'на 380 px "Отмени" се вижда изцяло (' + Math.round(u380.l) + '-' + Math.round(u380.r) + ' px)');
-  check(t380.shown && t380.w >= 80 && t380.l >= 0 && t380.r <= 380, 'на 380 px плъзгачът "Отклонение" се вижда: ' + Math.round(t380.w) + ' px, ' + Math.round(t380.l) + '-' + Math.round(t380.r));
+  check(t380.shown && t380.w >= 36 && t380.l >= 0 && t380.r <= 380, 'на 380 px полето "Отклонение" се вижда: ' + Math.round(t380.w) + ' px, ' + Math.round(t380.l) + '-' + Math.round(t380.r));
   check(!s380.shown && await page.isHidden('#searchForm'), 'на 380 px търсенето е скрито');
   const bar380 = await page.evaluate(() => ({ bar: document.querySelector('#bar').getBoundingClientRect().bottom, tr: document.querySelector('.mapctl.tr').getBoundingClientRect().top }));
   check(bar380.bar <= 122 && bar380.bar <= bar380.tr, 'на 380 px лентата е ' + Math.round(bar380.bar) + ' px висока и не покрива "Сателит / Топо" (' + Math.round(bar380.tr) + ')');
@@ -296,14 +306,14 @@ function barFits() {
   await page.screenshot({ path: path.join(OUT, 'panel-390.png') });
   await page.screenshot({ path: path.join(OUT, 'panel-390-full.png'), fullPage: true });
 
-  // Първият ред на лентата не прелива при никоя ширина; "Отмени" и плъзгачът винаги са на екрана.
+  // Първият ред на лентата не прелива при никоя ширина; "Отмени" и полето "Отклонение" винаги са на екрана.
   await page.evaluate(() => window.scrollTo(0, 0));
   let sweepOk = true;
   for (const w of [320, 380, 560, 561, 640, 700, 760, 761, 900, 1060, 1061, 1100, 1200, 1201, 1280, 1440]) {
     await page.setViewportSize({ width: w, height: 800 });
-    const bad = await page.evaluate(barFits), u = await page.evaluate(vis, '#undoBtn'), t = await page.evaluate(vis, '#bar .tolRange');
-    const ok = bad.length === 0 && u.shown && u.l >= 0 && u.r <= w && t.shown && t.w >= 80 && t.l >= 0 && t.r <= w;
-    if (!ok || w === 900) check(ok, 'на ' + w + ' px лентата се побира, "Отмени" и плъзгачът са на екрана' + (bad.length ? ': ' + bad.join(', ') : ''));
+    const bad = await page.evaluate(barFits), u = await page.evaluate(vis, '#undoBtn'), t = await page.evaluate(vis, '#bar .tolInput');
+    const ok = bad.length === 0 && u.shown && u.l >= 0 && u.r <= w && t.shown && t.w >= 36 && t.l >= 0 && t.r <= w;
+    if (!ok || w === 900) check(ok, 'на ' + w + ' px лентата се побира, "Отмени" и полето "Отклонение" са на екрана' + (bad.length ? ': ' + bad.join(', ') : ''));
     if (!ok) { sweepOk = false; break; }
   }
   if (sweepOk) check(true, 'лентата се побира при 320-1440 px');

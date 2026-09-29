@@ -25,7 +25,7 @@
     <span class="logo"><i></i><span class="logo-t">GPX конструктор</span></span>
     <input id="routeName" class="route-name" type="text" value="Нов маршрут" aria-label="Име на маршрута" spellcheck="false">
     <button class="btn" data-act="undo" id="undoBtn" disabled>Отмени</button>
-    <label class="tol"><span class="tol-label">Отклонение</span> <input type="range" class="tolRange" min="5" max="100" step="5" value="20" aria-label="Максимално допустимо отклонение"> <b class="num tolVal">20 м</b></label>
+    <label class="tol"><span class="tol-label">Отклонение</span> <input type="text" class="tolInput num" inputmode="numeric" pattern="[0-9]*" maxlength="3" value="20" autocomplete="off" aria-label="Максимално допустимо отклонение в метри" title="Отклонение в метри, от 0 до 999. Enter прилага."> <span class="tol-unit">м</span></label>
     <span class="sp"></span>
     <button class="btn pri" data-act="add-tracks" title="Добави .gpx тракове">Добави<span class="wide"> тракове</span></button>
     <button class="btn wide-only" data-act="picture">Картина</button>
@@ -142,7 +142,7 @@
       <button class="btn" data-act="picture">Картина</button>
       <button class="btn" data-act="save">Запази</button>
       <button class="btn" data-act="follow">Следене</button>
-      <label class="tol">Отклонение <input type="range" class="tolRange" min="5" max="100" step="5" value="20" aria-label="Максимално допустимо отклонение"> <b class="num tolVal">20 м</b></label>
+      <label class="tol">Отклонение <input type="text" class="tolInput num" inputmode="numeric" pattern="[0-9]*" maxlength="3" value="20" autocomplete="off" aria-label="Максимално допустимо отклонение в метри" title="Отклонение в метри, от 0 до 999. Enter прилага."> <span class="tol-unit">м</span></label>
     </div>
     <p class="hint">Клик върху сегмент го слага в маршрута като следваща част. Пръстенът е точка на прекъсване: клик върху клона, по който маршрутът да продължи, сменя посоката там. Дублиращите се участъци са извън маршрута, а общата отсечка между две части се минава веднъж. Посочването на ред в списъка светва същия сегмент на картата.</p>
   </section>
@@ -174,7 +174,7 @@
       <section class="card" id="dupsCard">
         <h2>Дубликати</h2>
         <p class="dups-sum small" id="dupsSkipped">Пропуснати дубликати: 0 участъка · 0 км</p>
-        <p class="muted small">Участък, който минава по-близо от <b class="tolVal">20 м</b> до вече приетото трасе, излиза от маршрута. Кое се брои за дубликат се сменя с плъзгача "Отклонение" в лентата.</p>
+        <p class="muted small">Участък, който минава по-близо от <b class="tolVal">20 м</b> до вече приетото трасе, излиза от маршрута. Кое се брои за дубликат се сменя с полето "Отклонение" в лентата.</p>
       </section>
       <section class="card" id="cutsCard">
         <h2>Изрязано от тракове <span class="num muted" id="cutsCount">(0)</span></h2>
