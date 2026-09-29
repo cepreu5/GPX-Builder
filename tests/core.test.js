@@ -2,6 +2,16 @@
 global.window = global;
 require('../js/util.js'); require('../js/core.js');
 var assert = require('assert');
+// Дубликат излиза от маршрута само след клик върху маркера му (t.skips). Проверките за
+// махнат дубликат минават с всички намерени дубликати решени - както след кликовете.
+function decided(tracks, tol) {
+  var r0 = Core.analyze(tracks, tol);
+  r0.pend.forEach(function (s) {
+    var t = tracks.filter(function (x) { return x.id === s.trackId; })[0];
+    t.skips = Core.mergeIv((t.skips || []).concat([{ a: s.a, b: s.b }]));
+  });
+  return Core.analyze(tracks, tol);
+}
 function line(lat0, lon0, lat1, lon1, n, jitter) {
   var p = [];
   for (var i = 0; i <= n; i++) {
@@ -16,7 +26,7 @@ var A = { id: 'A', pts: line(42.5, 24.70, 42.5, 24.75, 200) };
 var B = { id: 'B', pts: line(42.50009, 24.71, 42.50009, 24.73, 80).concat(line(42.50009, 24.7302, 42.53, 24.73, 120)) };
 // Трак В: същото като Б, но на 35 м и в обратна посока.
 var C = { id: 'C', pts: line(42.50031, 24.735, 42.50031, 24.745, 40) .reverse() };
-var r = Core.analyze([A, B, C], 20, []);
+var r = decided([A, B, C], 20, []);
 function kinds(id) { return r.byTrack[id].filter(function (s) { return s.kind !== 'gap'; }).map(function (s) { return s.kind + ':' + Math.round(s.a) + '-' + Math.round(s.b) + (s.withId ? '@' + s.withId + '/' + s.dir : ''); }); }
 console.log('A', kinds('A')); console.log('B', kinds('B')); console.log('C', kinds('C'));
 // А се дели на две части там, където Б се отделя от него (точка на прекъсване).
@@ -26,12 +36,12 @@ assert.ok(r.junctions.some(function (j) { return U.hav(j.lat, j.lon, bEnd[0], bE
 assert.strictEqual(r.byTrack.B[0].kind, 'dup'); assert.strictEqual(r.byTrack.B[0].withId, 'A');
 assert.strictEqual(r.byTrack.B[1].kind, 'part');
 assert.ok(r.byTrack.C.every(function (s) { return s.kind === 'part'; }), 'при 20 м В е различен');
-var r40 = Core.analyze([A, B, C], 40, []);
+var r40 = decided([A, B, C], 40, []);
 console.log('C@40', r40.byTrack.C.map(function (s) { return s.kind + '/' + s.dir; }));
 assert.strictEqual(r40.byTrack.C[0].kind, 'dup'); assert.strictEqual(r40.byTrack.C[0].dir, 'обратна');
 // Дубликатът не се връща: няма поле kept, не е част, а стар трети аргумент (overrides) не пречи.
 var d = r.byTrack.B[0];
-var r2 = Core.analyze([A, B, C], 20, [{ trackId: 'B', a: d.a, b: d.b }]);
+var r2 = decided([A, B, C], 20, [{ trackId: 'B', a: d.a, b: d.b }]);
 assert.strictEqual(Core.analyze.length, 2, 'analyze няма параметър overrides');
 assert.ok(r2.dups.every(function (s) { return !('kept' in s); }), 'дубликатът няма поле kept');
 assert.ok(r2.parts.every(function (s) { return s.kind === 'part'; }), 'дубликат не влиза в частите');
@@ -39,13 +49,13 @@ assert.strictEqual(r2.byTrack.B[0].kind, 'dup');
 assert.ok(Core.invalidShare({ trackId: 'B', a: d.a, b: d.b }, r2).bad, 'част върху дубликат е невалидна');
 // Изрязване.
 A.cuts = [{ a: 0, b: 1000 }];
-var r3 = Core.analyze([A, B, C], 20, []);
+var r3 = decided([A, B, C], 20, []);
 console.log('A cut', kinds('A').length, r3.byTrack.A.map(function (s) { return s.kind + ':' + Math.round(s.a); }));
 assert.strictEqual(r3.byTrack.A[0].kind, 'cut'); assert.strictEqual(Math.round(r3.byTrack.A[1].a), 1000);
 // Връщане по същия път в същия трак.
 var out = line(42.6, 24.7, 42.6, 24.72, 80), back = line(42.60005, 24.72, 42.60005, 24.70, 80);
 var S = { id: 'S', pts: out.concat(back) };
-var r4 = Core.analyze([S], 20, []);
+var r4 = decided([S], 20, []);
 console.log('S', r4.byTrack.S.map(function (s) { return s.kind + ':' + Math.round(s.a) + '-' + Math.round(s.b) + (s.withId ? '@' + s.withId : ''); }));
 assert.strictEqual(r4.byTrack.S[r4.byTrack.S.length - 1].kind, 'dup');
 // Геометрия на маршрут и дупка.
@@ -60,7 +70,7 @@ assert.ok(!g.items.some(function (x) { return x.shared; }));
 var X = { id: 'X', pts: line(42.7, 24.70, 42.7, 24.72, 100) };
 var Z = { id: 'Z', pts: line(42.7, 24.72, 42.69, 24.72, 60) };
 var Y = { id: 'Y', pts: line(42.71, 24.71, 42.70009, 24.71, 60).concat(line(42.70009, 24.7101, 42.70009, 24.72, 60), line(42.7003, 24.7201, 42.71, 24.73, 60)) };
-var rs = Core.analyze([X, Z, Y], 20);
+var rs = decided([X, Z, Y], 20);
 var ys = rs.byTrack.Y.filter(function (s) { return s.kind !== 'gap'; });
 console.log('Y', ys.map(function (s) { return s.kind + ':' + Math.round(s.a) + '-' + Math.round(s.b); }));
 assert.deepStrictEqual(ys.map(function (s) { return s.kind; }), ['part', 'dup', 'part']);
@@ -99,7 +109,7 @@ assert.deepStrictEqual(j2.branches.map(function (b) { return b.trackId + b.from;
 assert.strictEqual(rs.byTrack.X.filter(function (s) { return s.kind === 'part'; }).length, 2, 'X е разделен при събирането');
 // Кръстовище без обща отсечка: два трака само се пресичат.
 var H = { id: 'H', pts: line(42.8, 24.70, 42.8, 24.72, 80) }, V = { id: 'V', pts: line(42.79, 24.71, 42.81, 24.71, 80) };
-var rx = Core.analyze([H, V], 20);
+var rx = decided([H, V], 20);
 console.log('cross', rx.junctions.map(function (j) { return j.key + ' ' + j.branches.length; }));
 assert.strictEqual(rx.junctions.length, 1, 'едно кръстовище');
 assert.ok(U.hav(rx.junctions[0].lat, rx.junctions[0].lon, 42.8, 24.71) < 5, 'кръстовището е в пресечната точка');
@@ -142,3 +152,105 @@ var g2 = geoOf(), e2 = g2.pts[g2.pts.length - 1];
 assert.deepStrictEqual(route.items.map(function (i) { return i.trackId + (i.rev ? '<' : '>'); }), ['Y>', 'X<']);
 assert.ok(U.hav(e2[0], e2[1], X.pts[0][0], X.pts[0][1]) < 5 && g2.gaps.length === 0 && !g2.items.some(function (x) { return x.shared; }), 'на запад: без обща отсечка, до началото на X');
 console.log('forks OK');
+
+// ---- Маркер за всеки дубликат, скрити дубликати, самозатварящи се дупки ----
+function copyT(t) { return { id: t.id, pts: t.pts.map(function (p) { return p.slice(); }) }; }
+function near(a, b, eps, msg) { assert.ok(Math.abs(a - b) <= eps, msg + ': ' + Math.round(a) + ' ~ ' + Math.round(b)); }
+// Без клик дубликатът чака: приет участък с pend, нищо не е махнато, точките на прекъсване са същите.
+var X2 = copyT(X), Y2 = copyT(Y), Z2 = copyT(Z), by2 = { X: X2, Y: Y2, Z: Z2 };
+var rp = Core.analyze([X2, Z2, Y2], 20);
+var yp = rp.byTrack.Y.filter(function (s) { return s.kind !== 'gap'; });
+console.log('Y pend', yp.map(function (s) { return s.kind + (s.pend ? '*' : '') + ':' + Math.round(s.a) + '-' + Math.round(s.b); }));
+assert.deepStrictEqual(yp.map(function (s) { return s.kind + (s.pend ? '*' : ''); }), ['part', 'part*', 'part'], 'непотвърденият дубликат е част с pend');
+assert.strictEqual(rp.dups.length, 0, 'нищо не е махнато без клик');
+assert.strictEqual(rp.pend.length, 1, 'един маркер');
+assert.ok(rp.parts.every(function (s) { return !s.pend; }), 'parts не съдържа чакащите');
+assert.strictEqual(rp.pend[0].withId, 'X');
+near(rp.pend[0].a, yDup.a, 1, 'границите на чакащия дубликат'); near(rp.pend[0].b, yDup.b, 1, 'границите на чакащия дубликат');
+assert.ok(!Core.invalidShare({ trackId: 'Y', a: rp.pend[0].a, b: rp.pend[0].b }, rp).bad, 'част върху чакащ дубликат е валидна');
+assert.deepStrictEqual(jAt(rp, J1).branches.map(function (b) { return b.trackId + b.from; }).sort(), ['Xa', 'Xb', 'Yb'], 'пръстенът при събирането е същият');
+assert.deepStrictEqual(jAt(rp, J2).branches.map(function (b) { return b.trackId + b.from; }).sort(), ['Xb', 'Ya', 'Za'], 'пръстенът при деленето е същият');
+// Маршрут, който минава общата отсечка два пъти: по X и обратно по Y. Кликът маха точно дубликата.
+var xs = rp.parts.filter(function (s) { return s.trackId === 'X'; });
+var rt2 = { items: [P(xs[0]), P(xs[1]), P(rp.pend[0], true)] };
+var gBefore = Core.routeGeometry(rt2, by2, rp);
+near(gBefore.len, xs[0].len + xs[1].len + rp.pend[0].len, 30, 'преди клика дубликатът се брои');
+Y2.skips = Core.mergeIv([{ a: rp.pend[0].a, b: rp.pend[0].b }]);
+rt2.items = Core.trimItems(rt2.items, 'Y', rp.pend[0].a, rp.pend[0].b);
+var ra = Core.analyze([X2, Z2, Y2], 20);
+var gAfter = Core.routeGeometry(rt2, by2, ra);
+console.log('клик върху маркера', Math.round(gBefore.len), '->', Math.round(gAfter.len), 'дубликат', Math.round(rp.pend[0].len));
+assert.strictEqual(rt2.items.length, 2, 'частта върху дубликата излиза от маршрута');
+// Пада с участъка и с краткия скок (под 30 м) от края на X до него.
+var jx = gBefore.items[1].pts[gBefore.items[1].pts.length - 1], jy = gBefore.items[2].pts[0];
+near(gBefore.len - gAfter.len, rp.pend[0].len + U.hav(jx[0], jx[1], jy[0], jy[1]), 2, 'дължината пада точно с дължината на участъка');
+assert.strictEqual(ra.pend.length, 0); assert.strictEqual(ra.dups.length, 1, 'махнатият е dup');
+assert.deepStrictEqual(ra.byTrack.Y.filter(function (s) { return s.kind !== 'gap'; }).map(function (s) { return s.kind; }), ['part', 'dup', 'part']);
+// Отрязване на по-дълга част: остават парчетата преди и след дубликата, в посоката на частта.
+var cutItems = Core.trimItems([{ type: 'part', trackId: 'Y', a: 0, b: Y2.len, rev: true }], 'Y', rp.pend[0].a, rp.pend[0].b);
+assert.deepStrictEqual(cutItems.map(function (i) { return Math.round(i.a) + '-' + Math.round(i.b) + (i.rev ? '<' : ''); }),
+  [Math.round(rp.pend[0].b) + '-' + Math.round(Y2.len) + '<', '0-' + Math.round(rp.pend[0].a) + '<'], 'парчетата около дубликата');
+// Три дубликата - три маркера, всеки се маха сам.
+var base = { id: 'L', pts: line(43.0, 24.70, 43.0, 24.76, 300) };
+var zz = [], lon = 24.705;
+for (var q = 0; q < 3; q++) {
+  zz = zz.concat(line(43.00009, lon, 43.00009, lon + 0.008, 40));          // ~650 м по L
+  zz = zz.concat(line(43.0015, lon + 0.0085, 43.0015, lon + 0.012, 20));   // встрани, на 165 м
+  lon += 0.0125;
+}
+var M = { id: 'M', pts: zz }, byM = { L: base, M: M };
+var r3d = Core.analyze([base, M], 20);
+console.log('три маркера', r3d.pend.map(function (s) { return Math.round(s.a) + '-' + Math.round(s.b); }));
+assert.strictEqual(r3d.pend.length, 3, 'три маркера');
+var mid = r3d.pend[1];
+M.skips = [{ a: mid.a, b: mid.b }];
+var r3e = Core.analyze([base, M], 20);
+assert.strictEqual(r3e.pend.length, 2, 'остават два маркера'); assert.strictEqual(r3e.dups.length, 1, 'махнат е само един');
+near(r3e.dups[0].a, mid.a, 1, 'махнат е точно натиснатият'); near(r3e.dups[0].b, mid.b, 1, 'махнат е точно натиснатият');
+M.skips = [];
+assert.strictEqual(Core.analyze([base, M], 20).pend.length, 3, '"Отмени" (без решението) връща маркера');
+// Вдигнато отклонение: решените си остават решени, новите дубликати чакат маркер.
+var A3 = copyT(A), B3 = copyT(B), C3 = copyT(C);
+var r20 = Core.analyze([A3, B3, C3], 20);
+assert.strictEqual(r20.pend.length, 1);
+B3.skips = [{ a: r20.pend[0].a, b: r20.pend[0].b }];
+var r40b = Core.analyze([A3, B3, C3], 40);
+console.log('при 40 м', 'dups', r40b.dups.map(function (s) { return s.trackId; }), 'pend', r40b.pend.map(function (s) { return s.trackId; }));
+assert.deepStrictEqual(r40b.dups.map(function (s) { return s.trackId; }), ['B'], 'Б остава махнат');
+assert.deepStrictEqual(r40b.pend.map(function (s) { return s.trackId; }), ['C'], 'В чака свой маркер');
+// Дупка между две части, по-къса от отклонението, се свързва сама; по-дългата си остава.
+var P1 = { id: 'P1', pts: line(42.9, 24.70, 42.9, 24.71, 50) };
+var P2 = { id: 'P2', pts: line(42.9, 24.71074, 42.91, 24.71074, 50) }; // ~60 м на изток, после на север
+var byP = { P1: P1, P2: P2 };
+var gapRoute = { items: [{ type: 'part', trackId: 'P1', a: 0, b: Core.prep(P1).len }, { type: 'part', trackId: 'P2', a: 0, b: Core.prep(P2).len }] };
+var ga100 = Core.routeGeometry(gapRoute, byP, Core.analyze([P1, P2], 100));
+var ga40 = Core.routeGeometry(gapRoute, byP, Core.analyze([P1, P2], 40));
+console.log('дупка', ga100.autoGaps.map(function (x) { return x.kind + ' ' + Math.round(x.d) + ' @' + Math.round(x.d0); }), 'при 40 м', ga40.gaps.length);
+assert.strictEqual(ga100.gaps.length, 0, 'при 100 м няма отворена дупка');
+assert.strictEqual(ga100.autoGaps.length, 1, 'при 100 м дупката е затворена сама');
+assert.ok(ga100.items.some(function (x) { return x.auto && x.idx === null; }), 'свързващият елемент не е в route.items');
+assert.strictEqual(gapRoute.items.length, 2);
+near(ga100.len, P1.len + P2.len + ga100.autoGaps[0].d, 1, 'затворената дупка влиза в дължината');
+near(ga100.autoGaps[0].d0, P1.len, 1, 'мястото на дупката по маршрута');
+assert.strictEqual(ga40.gaps.length, 1, 'при 40 м дупката е отворена (с двата бутона)'); assert.strictEqual(ga40.autoGaps.length, 0);
+assert.strictEqual(Core.routeGeometry(gapRoute, byP, Core.analyze([P1, P2], 20)).gaps.length, 1, 'при 20 м също');
+var e1 = P1.pts[P1.pts.length - 1], s2 = P2.pts[0];
+gapRoute.openGaps = [[e1[0], e1[1], s2[0], s2[1]]];
+var gOpen = Core.routeGeometry(gapRoute, byP, Core.analyze([P1, P2], 100));
+assert.strictEqual(gOpen.gaps.length, 1, '"Отвори пак": дупката пак е отворена'); assert.strictEqual(gOpen.autoGaps.length, 0);
+// Дупка от загубен сигнал вътре в трак: под отклонението частта е една и дупката е затворена.
+var gp1 = line(42.95, 24.70, 42.95, 24.71, 50), gp2 = line(42.95, 24.71074, 42.95, 24.72, 50);
+var T = { id: 'T', pts: gp1.concat(gp2), breaks: [gp1.length] }, byT = { T: T };
+var rT20 = Core.analyze([T], 20), rT100 = Core.analyze([T], 100);
+console.log('дупка в трака', 'при 20 м', rT20.gaps.length, rT20.parts.length, 'при 100 м', rT100.closedGaps.length, rT100.parts.length);
+assert.strictEqual(rT20.gaps.length, 1); assert.strictEqual(rT20.parts.length, 2, 'при 20 м тракът е на две части');
+assert.strictEqual(rT100.gaps.length, 0); assert.strictEqual(rT100.closedGaps.length, 1); assert.strictEqual(rT100.parts.length, 1, 'при 100 м частта е една');
+var gT = Core.routeGeometry({ items: [{ type: 'part', trackId: 'T', a: 0, b: T.len }] }, byT, rT100);
+assert.strictEqual(gT.autoGaps.length, 1); assert.strictEqual(gT.autoGaps[0].kind, 'track');
+near(gT.len, T.len, 1, 'дупката в трака влиза в дължината');
+near(gT.autoGaps[0].d0, T._cum[gp1.length - 1], 1, 'мястото ѝ по маршрута');
+var gTr = Core.routeGeometry({ items: [{ type: 'part', trackId: 'T', a: 0, b: T.len, rev: true }] }, byT, rT100);
+near(gTr.autoGaps[0].d0, T.len - T._cum[gp1.length], 1, 'в обратна посока');
+T.openGaps = [rT100.closedGaps[0].a];
+assert.strictEqual(Core.analyze([T], 100).gaps.length, 1, '"Отвори пак" в трака');
+console.log('markers/gaps OK');
