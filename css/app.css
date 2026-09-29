@@ -176,6 +176,24 @@ body.mode-remove .map-canvas { cursor: not-allowed; }
 .mapctl { position: absolute; z-index: 10; display: flex; gap: 6px; }
 .mapctl.tr { right: 10px; top: 96px; align-items: center; transition: top .18s ease; }
 body.bar-hidden .mapctl.tr { top: 10px; }
+/* Табче в средата на горния ръб - връща скритата лента */
+.barhandle {
+  position: absolute; z-index: 25; left: 50%; top: 0; transform: translateX(-50%);
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  min-width: 76px; min-height: 30px;
+  padding: calc(4px + env(safe-area-inset-top)) 12px 5px;
+  border: 1px solid var(--app-line-strong); border-top: 0;
+  border-radius: 0 0 var(--app-radius-sm) var(--app-radius-sm);
+  background: var(--app-surface); color: var(--app-ink);
+  box-shadow: var(--app-shadow-pop);
+  font: inherit; font-size: 12.5px; font-weight: 600; line-height: 1;
+  cursor: pointer;
+}
+.barhandle span { font-size: 10px; }
+.barhandle:hover { border-color: var(--app-muted); }
+.barhandle:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 1px; }
+/* На тесен екран контролите горе вдясно слизат под табчето, за да не се застъпват */
+@media (max-width: 560px) { body.bar-hidden .mapctl.tr { top: calc(40px + env(safe-area-inset-top)); } }
 .mapctl.br { right: 10px; bottom: 26px; flex-direction: column; }
 .mapctl .btn.ico { background: var(--app-overlay); }
 .mapctl .chk { background: var(--app-overlay); border: 1px solid var(--app-line-strong); border-radius: var(--app-radius-sm); padding: 4px 8px; min-height: 30px; }
