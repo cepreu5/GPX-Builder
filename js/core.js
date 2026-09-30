@@ -6,6 +6,7 @@
   var U = window.U;
   var MPD = 6371008.8 * Math.PI / 180; // метри на градус по меридиана
   var ROUTE_GAP = 30; // над толкова метра между две части е дупка
+  var LINK_MIN = 1; // между части от различни тракове скок над толкова метра се свързва (до отклонението)
 
   // Натрупани разстояния и дължина - пазят се върху обекта, без да се записват.
   function prep(t) {
@@ -308,6 +309,33 @@
     function partsOf(id) { return result.byTrack[id].filter(function (s) { return s.kind === 'part' && !s.pend; }); }
     var anyDup = [];
     live.forEach(function (t) { result.byTrack[t.id].forEach(function (s) { if (s.kind === 'dup' || s.pend) anyDup.push(s); }); });
+    // 0. Границата между дубликат и приет участък от същия трак се мести навътре в дубликата,
+    // докато трасето е в обхвата на отклонението до другия трак. Там е точката на прекъсване:
+    // краят на участъка е на отклонение от другия трак и свръзката до него не оставя дупка.
+    anyDup.forEach(function (d) {
+      var t = byId[d.trackId], o = byId[d.withId];
+      if (!t || !o) return;
+      var ps = partsOf(d.trackId);
+      function within(x) {
+        var q = pointAt(t, x), n = nearestInRange(o, d.withA - 60, d.withB + 60, q[0], q[1], kx, ky);
+        return n && n.dist <= tol;
+      }
+      var room = Math.max(0, d.len - JOIN_MIN);
+      [['b', 'a', -1], ['a', 'b', 1]].forEach(function (c) {
+        var e = d[c[0]], p = ps.filter(function (x) { return Math.abs(x[c[1]] - e) < 1; })[0];
+        if (!p) return;
+        for (var k = 0; k <= Math.min(80, room); k += 2) {
+          var x = e + c[2] * k;
+          if (!within(x)) continue;
+          if (k) {
+            d[c[0]] = x; d.len = d.b - d.a; p[c[1]] = x; p.len = p.b - p.a;
+            p.key = p.trackId + ':' + Math.round(p.a); d.key = d.trackId + ':' + Math.round(d.a);
+            room -= k;
+          }
+          break;
+        }
+      });
+    });
     // 1. Краищата на дубликатите (махнати или не), до които има приет участък от същия трак.
     anyDup.forEach(function (d) {
       var ps = partsOf(d.trackId);
@@ -392,7 +420,17 @@
           var pa = pointAt(t, s.a), pb = pointAt(t, s.b);
           var da = U.hav(j.lat, j.lon, pa[0], pa[1]), db = U.hav(j.lat, j.lon, pb[0], pb[1]);
           var from = da <= db ? 'a' : 'b';
-          if (Math.min(da, db) <= jt) j.branches.push({ trackId: t.id, a: s.a, b: s.b, len: s.len, key: s.key, from: from });
+          if (Math.min(da, db) <= jt) j.branches.push({ trackId: t.id, a: s.a, b: s.b, len: s.len, key: s.key, from: from, at: from === 'a' ? pa : pb });
+        });
+      });
+      // Свръзките: краищата на клонове от различни тракове, по-близо от отклонението. Всеки
+      // край лежи на своя трак, така че свързващата отсечка стига точно до продължаващия трак.
+      j.links = [];
+      j.branches.forEach(function (p, pi) {
+        j.branches.forEach(function (q, qi) {
+          if (qi <= pi || p.trackId === q.trackId) return;
+          var d = U.hav(p.at[0], p.at[1], q.at[0], q.at[1]);
+          if (d > LINK_MIN && d <= tol) j.links.push({ a: pi, b: qi, d: d });
         });
       });
     });
@@ -484,10 +522,44 @@
     return { item: { type: 'shared', trackId: best.trackId, a: best.a, b: best.b, rev: best.rev }, pts: pts };
   }
 
+  /* Ръчно начертана връзка (draw с link) е между двете части, които съединява - никога в
+     началото или края на маршрута. Ако е останала там (махната част, стар ред), отива в
+     мястото между две съседни части, до което е най-близо. route.items не се пипа. */
+  function placeLinks(items) {
+    function isPart(g) { return g.item.type === 'part' && g.pts.length; }
+    if (items.filter(isPart).length < 2) return items;
+    var first = -1, last = -1;
+    items.forEach(function (g, i) { if (isPart(g)) { if (first < 0) first = i; last = i; } });
+    var loose = items.filter(function (g, i) { return g.item.type === 'draw' && g.item.link && (i < first || i > last); });
+    if (!loose.length) return items;
+    var out = items.filter(function (g) { return loose.indexOf(g) < 0; });
+    loose.forEach(function (g) {
+      var best = -1, bs = Infinity;
+      for (var i = 1; i < out.length; i++) {
+        var P = out[i - 1], N = out[i];
+        if (!isPart(P) || !isPart(N)) continue;
+        var e = P.pts[P.pts.length - 1], s = N.pts[0];
+        var jump = U.hav(e[0], e[1], s[0], s[1]), score;
+        if (g.pts.length) {
+          var f = g.pts[0], l = g.pts[g.pts.length - 1];
+          score = U.hav(e[0], e[1], f[0], f[1]) + U.hav(l[0], l[1], s[0], s[1]);
+        } else score = -jump;
+        if (jump <= LINK_MIN) score += 1e7; // място без скок - само ако друго няма
+        if (score < bs) { bs = score; best = i; }
+      }
+      if (best > 0) out.splice(best, 0, g);
+      else out.push(g);
+    });
+    return out;
+  }
+
   /* Геометрия на маршрута: всяка част дава своите точки; чертаните участъци свързват
      съседите си; дупка се отчита само между две съседни части от тракове. Ако между
      тях лежи махнат дубликат (общата отсечка), маршрутът минава през него веднъж:
-     вмъква се елемент {type:'shared'} с idx null, който не е в route.items. */
+     вмъква се елемент {type:'shared'} с idx null, който не е в route.items.
+     Свръзки: между части от различни тракове скок до отклонението (analysis.tol) се
+     затваря сам с отсечка {type:'autogap'} (idx null) - тя е между частите, затова
+     стартът и краят на маршрута винаги са от истински трак. */
   function routeGeometry(route, tracksById, analysis) {
     var items = [], all = [];
     (route.items || []).forEach(function (it, idx) {
@@ -501,26 +573,42 @@
       } else if (it.type === 'draw') {
         pts = (it.pts || []).map(function (p) { return [p.lat, p.lon, null]; });
       }
-      items.push({ idx: idx, item: it, pts: pts, missing: it.type === 'part' && !tracksById[it.trackId] });
+      items.push({ idx: idx, item: it, pts: pts, missing: it.type === 'part' && !tracksById[it.trackId], link: it.type === 'draw' && !!it.link });
     });
+    items = placeLinks(items);
     var gaps = [], out = [], autoGaps = [];
     var prev = null;
     var tol = Math.max(ROUTE_GAP, analysis ? analysis.tol * 1.5 : 0);
+    var closeTol = analysis ? analysis.tol : -1;
+    function autoLink(from, to, d, beforeIdx, afterIdx) {
+      var gp = { kind: 'route', link: true, beforeIdx: beforeIdx, afterIdx: afterIdx, d: d, from: from, to: to };
+      autoGaps.push(gp);
+      out.push({ idx: null, auto: true, gap: gp, item: { type: 'autogap' }, pts: [from.slice(0, 3), to.slice(0, 3)] });
+    }
+    // Скок между две парчета от различни тракове (обща отсечка и част) - свръзка до отклонението.
+    function joinPieces(e, s, idA, idB, beforeIdx, afterIdx) {
+      if (idA === idB) return;
+      var d = U.hav(e[0], e[1], s[0], s[1]);
+      if (d > LINK_MIN && d <= closeTol && !isReopened(route, e, s)) autoLink(e, s, d, beforeIdx, afterIdx);
+    }
     items.forEach(function (g) {
       if (g.item.type === 'draw') { g.connected = true; prev = g.pts.length ? g : { draw: true }; out.push(g); return; }
       if (!g.pts.length) { out.push(g); return; }
       if (prev && !prev.draw && prev.pts && prev.pts.length) {
         var e = prev.pts[prev.pts.length - 1], s = g.pts[0];
         var d = U.hav(e[0], e[1], s[0], s[1]);
-        if (d > ROUTE_GAP) {
-          var link = analysis && sharedLink(prev, g, analysis, tracksById, tol);
+        var diff = prev.item.type === 'part' && prev.item.trackId !== g.item.trackId;
+        if (d > ROUTE_GAP || diff && d > LINK_MIN) {
+          var link = d > ROUTE_GAP && analysis && sharedLink(prev, g, analysis, tracksById, tol);
           var gp = { beforeIdx: g.idx, afterIdx: prev.idx, d: d, from: e, to: s };
-          if (link) out.push({ idx: null, shared: true, item: link.item, pts: link.pts });
-          else if (analysis && d < analysis.tol && !isReopened(route, e, s)) {
-            // Дупка под отклонението се свързва направо сама; не е в route.items.
-            gp.kind = 'route';
-            autoGaps.push(gp);
-            out.push({ idx: null, auto: true, gap: gp, item: { type: 'autogap' }, pts: [e.slice(0, 3), s.slice(0, 3)] });
+          if (link) {
+            joinPieces(e, link.pts[0], prev.item.trackId, link.item.trackId, g.idx, prev.idx);
+            out.push({ idx: null, shared: true, item: link.item, pts: link.pts });
+            joinPieces(link.pts[link.pts.length - 1], s, link.item.trackId, g.item.trackId, g.idx, prev.idx);
+          } else if (analysis && d <= closeTol && !isReopened(route, e, s)) {
+            // Дупка до отклонението се свързва направо сама; не е в route.items.
+            autoLink(e, s, d, g.idx, prev.idx);
+            autoGaps[autoGaps.length - 1].link = diff;
           } else gaps.push(gp);
         }
       }
@@ -530,9 +618,10 @@
     items = out;
     items.forEach(function (g) {
       g.start = all.length;
-      g.pts.forEach(function (p) {
+      g.first = all.length; // къде е първата точка на елемента (може да съвпада с последната на предишния)
+      g.pts.forEach(function (p, i) {
         var l = all[all.length - 1];
-        if (l && Math.abs(l[0] - p[0]) < 1e-7 && Math.abs(l[1] - p[1]) < 1e-7) return;
+        if (l && Math.abs(l[0] - p[0]) < 1e-7 && Math.abs(l[1] - p[1]) < 1e-7) { if (!i) g.first = all.length - 1; return; }
         all.push(p);
       });
       g.end = all.length - 1;
@@ -620,26 +709,27 @@
 
   /* Точките на прекъсване, през които минава маршрутът: на границата между две
      съседни части (или в края му). За всяка: след кой елемент от route.items е
-     (head), по кой клон продължава (chosen) и от кой идва (incoming). */
+     (head), по кой клон продължава (chosen) и от кой идва (incoming). at е мястото
+     на точката по маршрута - началото на продължаващия трак (след свръзката), така че
+     пръстенът лежи върху него. */
   function routeForks(geo, junctions, tol, tracksById) {
     var jt = Math.max(ROUTE_GAP, 1.5 * (tol || 20)), out = [];
-    var real = geo.items.filter(function (g) { return !g.shared && !g.auto && g.pts.length && g.end >= g.start; });
+    var real = geo.items.filter(function (g) { return !g.shared && !g.auto && !g.link && g.pts.length && g.end >= g.start; });
     (junctions || []).forEach(function (j) {
       var hit = null;
       for (var k = 0; k < real.length && !hit; k++) {
-        var P = real[k], N = real[k + 1], e = geo.pts[P.end];
-        if (U.hav(j.lat, j.lon, e[0], e[1]) <= jt) hit = { head: P.idx, d: geo.cum[P.end], atEnd: !N };
-        else if (N) {
-          var s = geo.pts[N.start];
-          if (U.hav(j.lat, j.lon, s[0], s[1]) <= jt) hit = { head: P.idx, d: geo.cum[N.start], atEnd: false };
-        }
+        var P = real[k], N = real[k + 1], e = geo.pts[P.end], ns = N && (N.first != null ? N.first : N.start), s = N && geo.pts[ns];
+        var nearS = s && U.hav(j.lat, j.lon, s[0], s[1]) <= jt;
+        if (U.hav(j.lat, j.lon, e[0], e[1]) <= jt) hit = nearS ? { head: P.idx, d: geo.cum[ns], atEnd: false } : { head: P.idx, d: geo.cum[P.end], atEnd: !N };
+        else if (nearS) hit = { head: P.idx, d: geo.cum[ns], atEnd: false };
       }
       if (!hit && real.length) {
-        var s0 = geo.pts[real[0].start];
+        var s0 = geo.pts[real[0].first != null ? real[0].first : real[0].start];
         if (U.hav(j.lat, j.lon, s0[0], s0[1]) <= jt) hit = { head: -1, d: 0, atEnd: false, atStart: true };
       }
       if (!hit) return;
       hit.j = j;
+      hit.at = routeAt(geo, hit.d);
       hit.probeAfter = hit.atEnd ? null : routeAt(geo, hit.d + PROBE);
       hit.chosen = nearestBranch(j, hit.probeAfter, tracksById, jt);
       hit.incoming = hit.atStart ? -1 : nearestBranch(j, routeAt(geo, hit.d - PROBE), tracksById, jt);
@@ -678,7 +768,7 @@
   window.Core = {
     prep: prep, analyze: analyze, slice: slice, pointAt: pointAt, nearestOn: nearestOn,
     nearestOnTrack: nearestOnTrack, invalidShare: invalidShare, routeGeometry: routeGeometry,
-    trackBounds: trackBounds, overlap: overlap, ROUTE_GAP: ROUTE_GAP,
+    trackBounds: trackBounds, overlap: overlap, ROUTE_GAP: ROUTE_GAP, LINK_MIN: LINK_MIN,
     routeForks: routeForks, switchFork: switchFork, branchProbe: branchProbe,
     mergeIv: mergeIv, trimItems: trimItems,
     joinTol: function (tol) { return Math.max(ROUTE_GAP, 1.5 * (tol || 20)); }

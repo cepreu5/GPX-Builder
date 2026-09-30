@@ -246,7 +246,12 @@
     var n = 0;
     G.items.forEach(function (g, gi) {
       // Общата отсечка не е част: без номер, рисува се в цвета на частта преди нея.
-      if (g.shared || g.auto) { g.no = 0; g.colorNo = n; return; }
+      // Връзката между две части (начертана или сама) също не е част и не се брои.
+      if (g.shared || g.auto || g.link) {
+        g.no = 0; g.colorNo = n;
+        if (g.link && g.pts.length) g.len = U.lengthOf(routeSpan(g, gi));
+        return;
+      }
       g.no = g.pts.length ? ++n : 0;
       g.colorNo = g.no;
       if (g.item.type === 'draw' && g.pts.length) g.len = U.lengthOf(routeSpan(g, gi));
@@ -365,6 +370,8 @@
     return br.from === 'a' ? Core.slice(t, br.a, br.a + L) : Core.slice(t, br.b - L, br.b);
   }
   function forkOf(j) { return (G && G.forks || []).filter(function (f) { return f.j === j; })[0]; }
+  // Къде стои пръстенът: по маршрута - върху продължаващия трак (след свръзката), иначе в точката.
+  function ringAt(j) { var f = forkOf(j); return f && f.at ? f.at : [j.lat, j.lon]; }
   function drawForks(ctx, m, pr, tb, hv) {
     var drawn = [];
     // Клоновете: избраният се подчертава, другите се приглушават; при посочване светват всички.
@@ -379,7 +386,7 @@
       });
     });
     (A.junctions || []).forEach(function (j) {
-      var q = pr(j.lat, j.lon);
+      var at = ringAt(j), q = pr(at[0], at[1]);
       if (q[0] < -20 || q[1] < -20 || q[0] > m.w + 20 || q[1] > m.h + 20) return;
       var f = forkOf(j), sel = !!(f && f.chosen >= 0), hot = hv && hv.kind === 'fork' && hv.j === j;
       var r = sel ? 10 : 7;
@@ -457,7 +464,8 @@
           var hl = ui.hl && ui.hl.item === g.idx || hv && hv.kind === 'item' && hv.idx === g.idx;
           if (hl) { path(ctx, pr, full); ctx.globalAlpha = 0.5; stroke(ctx, C.accent, 14); ctx.globalAlpha = 1; }
           path(ctx, pr, full);
-          stroke(ctx, itemColor(g.colorNo), 5.5, g.item.type === 'draw' ? [10, 6] : null);
+          if (g.link) stroke(ctx, itemColor(g.colorNo), 3, [6, 5]);
+          else stroke(ctx, itemColor(g.colorNo), 5.5, g.item.type === 'draw' ? [10, 6] : null);
           if (g.bad) { path(ctx, pr, g.pts); stroke(ctx, C.dup, 2.5, [4, 4]); }
         });
         // Затворените сами дупки: тънка прекъсната линия - поправено, не записано.
@@ -476,7 +484,7 @@
       // Номера на частите.
       if (!following && G.count > 0) {
         G.items.forEach(function (g) {
-          if (!g.pts.length || g.shared || g.auto || g.item.type === 'draw' && g.pts.length < 2) return;
+          if (!g.pts.length || g.shared || g.auto || g.link || g.item.type === 'draw' && g.pts.length < 2) return;
           var mp = g.pts[Math.floor(g.pts.length / 2)], q = pr(mp[0], mp[1]);
           badge(ctx, q[0], q[1], g.bad ? '!' : String(g.no), g.bad ? C.dup : itemColor(g.no));
         });
@@ -507,7 +515,7 @@
           var sel = ui.sel && ui.sel.idx === g.idx && ui.sel.pi === pi;
           ctx.beginPath(); ctx.arc(q[0], q[1], sel ? 8 : 5.5, 0, Math.PI * 2);
           ctx.fillStyle = sel ? C.accent : C.casing; ctx.fill();
-          ctx.lineWidth = 2.5; ctx.strokeStyle = itemColor(g.no); ctx.stroke();
+          ctx.lineWidth = 2.5; ctx.strokeStyle = itemColor(g.link ? g.colorNo : g.no); ctx.stroke();
           if (p.name) mapLabel(ctx, q[0] + 10, q[1], p.name);
           else if (m.zoom >= 15) mapLabel(ctx, q[0] + 9, q[1] - 9, String(vn), C.muted);
         });
@@ -651,7 +659,7 @@
     if (mk) return mk;
     var best = null;
     (A.junctions || []).forEach(function (j) {
-      var q = pr(j.lat, j.lon), d = Math.hypot(q[0] - p.x, q[1] - p.y);
+      var at = ringAt(j), q = pr(at[0], at[1]), d = Math.hypot(q[0] - p.x, q[1] - p.y);
       if (d <= 11 && (!best || d < best.d)) best = { kind: 'fork', j: j, d: d };
     });
     if (best) return best;
@@ -691,6 +699,7 @@
         (inR ? 'Вече е в маршрута. Клик я маха' : fk ? 'Клик: от точката на прекъсване маршрутът продължава по този клон' : 'Клик я слага в маршрута като част ' + (G.count + 1));
     }
     if (h.kind === 'item') {
+      if (h.g.link) return 'Връзка между частите · <b>' + U.dist(h.g.len) + '</b><br>Клик я маха от маршрута';
       return 'Част ' + h.g.no + ' · <b>' + U.km(h.g.len) + '</b>' + (h.g.bad ? '<br>Вече не е валидна (' + h.g.badWhy + '). Клик я маха' : '<br>Клик я маха от маршрута');
     }
     if (h.kind === 'gap') return 'дупка <b>' + U.dist(h.gap.d) + '</b><br>Клик: затвори с чертаене';
@@ -802,6 +811,18 @@
     r.modified = Date.now();
     ui.drawTarget = null;
     analyzeNow();
+    // Границата на дубликата може да се е преместила към точката на прекъсване: краищата на
+    // изрязаните части я следват, за да стигнат до свръзката.
+    var moved = false;
+    r.items.forEach(function (it) {
+      if (it.type !== 'part' || it.trackId !== sec.trackId) return;
+      (A.byTrack[sec.trackId] || []).forEach(function (s) {
+        if (s.kind !== 'part' || s.pend) return;
+        if (Math.abs(Math.min(it.a, it.b) - sec.b) < 1 && s.a < sec.b && s.b > sec.b) { if (it.a < it.b) it.a = s.a; else it.b = s.a; moved = true; }
+        if (Math.abs(Math.max(it.a, it.b) - sec.a) < 1 && s.b > sec.a && s.a < sec.a) { if (it.a < it.b) it.b = s.b; else it.a = s.b; moved = true; }
+      });
+    });
+    if (moved) routeChanged();
     toast('Дубликатът е махнат · ' + U.km(sec.len) + '. "Отмени" го връща.');
   }
   // "Отвори пак": затворената сама дупка става обикновена дупка с двата бутона.
@@ -819,7 +840,7 @@
   }
   function closeGap(gp) {
     pushUndo();
-    cur().items.splice(gp.beforeIdx, 0, { type: 'draw', pts: [] });
+    cur().items.splice(gp.beforeIdx, 0, { type: 'draw', pts: [], link: true });
     ui.drawTarget = gp.beforeIdx;
     setMode('add');
     toast('Цъкни по картата точките, през които да мине връзката');
@@ -827,15 +848,35 @@
   }
   function bridgeGap(gp) {
     pushUndo();
-    cur().items.splice(gp.beforeIdx, 0, { type: 'draw', pts: [], bridge: true });
+    cur().items.splice(gp.beforeIdx, 0, { type: 'draw', pts: [], bridge: true, link: true });
     routeChanged();
+  }
+  /* Къде отива връзка, начертана без избрана дупка: между двете съседни части, до чийто
+     скок е най-близо кликът (предимство имат местата със скок). Никога в края на маршрута -
+     стартът и краят остават върху трак. -1: частите са по-малко от две. */
+  function linkSlot(p) {
+    var items = cur().items, best = -1, bs = Infinity;
+    var real = G.items.filter(function (g) { return g.idx != null && g.item.type === 'part' && g.pts.length; });
+    if (real.length < 2) return -1;
+    var pr = map.projector(), q = pr(p.lat, p.lon);
+    for (var k = 1; k < real.length; k++) {
+      var P = real[k - 1], N = real[k];
+      if (N.idx !== P.idx + 1) continue;
+      var e = P.pts[P.pts.length - 1], s = N.pts[0];
+      var d = screenDist(pr, [e, s], q[0], q[1]).d;
+      if (U.hav(e[0], e[1], s[0], s[1]) <= Core.LINK_MIN) d += 1e6;
+      if (d < bs) { bs = d; best = N.idx; }
+    }
+    return best >= 0 && best <= items.length ? best : -1;
   }
   function addVertex(p) {
     var items = cur().items;
     pushUndo();
     var t = ui.drawTarget;
     if (t == null || !items[t] || items[t].type !== 'draw') {
-      if (items.length && items[items.length - 1].type === 'draw' && !items[items.length - 1].bridge) t = items.length - 1;
+      var slot = linkSlot(p);
+      if (slot >= 0) { items.splice(slot, 0, { type: 'draw', pts: [], link: true }); t = slot; }
+      else if (items.length && items[items.length - 1].type === 'draw' && !items[items.length - 1].bridge) t = items.length - 1;
       else { items.push({ type: 'draw', pts: [] }); t = items.length - 1; }
       ui.drawTarget = t;
     }
@@ -1087,6 +1128,11 @@
       if (g.auto) return;
       if (g.shared) {
         html.push('<li class="shared"><span class="i"></span><span class="t muted">обща отсечка <small>· ' + U.km(g.len) + '</small> · минава се веднъж</span></li>');
+        return;
+      }
+      if (g.link && g.pts.length) {
+        html.push('<li data-idx="' + g.idx + '" class="link"><span class="i"></span><span class="t muted">връзка <small>· ' + U.dist(g.len) + '</small> · между частите</span>' +
+          '<span class="v"><button class="btn sm" data-part="del" title="Махни връзката">×</button></span></li>');
         return;
       }
       if (it.type === 'draw' && !g.pts.length) {
@@ -1511,7 +1557,7 @@
       G.items.forEach(function (g, gi) {
         if (!g.pts.length) return;
         // Общата отсечка продължава частта преди нея - без свой номер и ред в легендата.
-        if ((g.shared || g.auto) && parts.length) { parts[parts.length - 1].pts = parts[parts.length - 1].pts.concat(g.pts); return; }
+        if ((g.shared || g.auto || g.link) && parts.length) { parts[parts.length - 1].pts = parts[parts.length - 1].pts.concat(g.pts); return; }
         var t = track(g.item.trackId);
         parts.push({ pts: routeSpan(g, gi), drawn: g.item.type === 'draw', no: g.no, label: g.item.type === 'draw' ? 'част ' + g.no + ' (чертан участък)' : 'част ' + g.no + ' (' + trackLabel(t).replace(/\.gpx$/i, '') + ')' });
       });

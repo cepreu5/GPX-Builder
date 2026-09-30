@@ -182,7 +182,8 @@ var gAfter = Core.routeGeometry(rt2, by2, ra);
 console.log('клик върху маркера', Math.round(gBefore.len), '->', Math.round(gAfter.len), 'дубликат', Math.round(rp.pend[0].len));
 assert.strictEqual(rt2.items.length, 2, 'частта върху дубликата излиза от маршрута');
 // Пада с участъка и с краткия скок (под 30 м) от края на X до него.
-var jx = gBefore.items[1].pts[gBefore.items[1].pts.length - 1], jy = gBefore.items[2].pts[0];
+var gbp = gBefore.items.filter(function (g) { return !g.auto; }); // между частите вече стои свръзката
+var jx = gbp[1].pts[gbp[1].pts.length - 1], jy = gbp[2].pts[0];
 near(gBefore.len - gAfter.len, rp.pend[0].len + U.hav(jx[0], jx[1], jy[0], jy[1]), 2, 'дължината пада точно с дължината на участъка');
 assert.strictEqual(ra.pend.length, 0); assert.strictEqual(ra.dups.length, 1, 'махнатият е dup');
 assert.deepStrictEqual(ra.byTrack.Y.filter(function (s) { return s.kind !== 'gap'; }).map(function (s) { return s.kind; }), ['part', 'dup', 'part']);

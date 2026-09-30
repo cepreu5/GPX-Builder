@@ -378,12 +378,13 @@ function barFits() {
     const shared = G.items.filter(g => g.shared), dup = A.dups[0];
     const parts = G.items.filter(g => !g.shared).reduce((s, g) => s + g.len, 0);
     let jump = 0; for (let i = 1; i < G.pts.length; i++) jump = Math.max(jump, U.hav(G.pts[i - 1][0], G.pts[i - 1][1], G.pts[i][0], G.pts[i][1]));
-    return { items: r.items.length, count: G.count, sParts: document.querySelector('#sParts').textContent, gaps: G.gaps.length, gapNotes: document.querySelectorAll('#gapsList .gap-note').length,
+    return { items: r.items.length, count: G.count, sParts: document.querySelector('#sParts').textContent, gaps: G.gaps.length, gapNotes: document.querySelectorAll('#gapsList .gap-note:not(.closed)').length, closedNotes: Array.from(document.querySelectorAll('#gapsList .gap-note.closed')).map(e => e.textContent.replace(/\s+/g, ' ').trim()),
       shared: shared.length, sharedLen: shared[0] && shared[0].len, dupLen: dup && dup.len, len: G.len, parts, jump,
       row: (document.querySelector('#partsList li.shared') || {}).textContent || '', badges: document.querySelectorAll('#partsList .badge').length };
   });
   check(sh.items === 2 && sh.count === 2 && sh.sParts === '2' && sh.badges === 2, 'две части в маршрута, "Части" = ' + sh.sParts + ' (общата отсечка не се брои)');
-  check(sh.gaps === 0 && sh.gapNotes === 0 && sh.jump <= 30, 'маршрутът е непрекъснат между частите: няма G.gaps, най-голям скок ' + Math.round(sh.jump) + ' м');
+  check(sh.gaps === 0 && sh.gapNotes === 0 && sh.jump <= 20, 'маршрутът е непрекъснат между частите: няма G.gaps, най-голям скок ' + Math.round(sh.jump) + ' м');
+  check(sh.closedNotes.length === 1 && /^Затворена дупка · 1\d м Отвори пак$/.test(sh.closedNotes[0]), 'от края на общата отсечка (Y) до Z: свръзка под отклонението, ред ' + JSON.stringify(sh.closedNotes));
   check(sh.shared === 1 && Math.abs(sh.sharedLen - sh.dupLen) < 5 && Math.abs(sh.len - (sh.parts + sh.dupLen)) < 60, 'дължината включва общата отсечка веднъж: ' + Math.round(sh.len) + ' = ' + Math.round(sh.parts) + ' + ' + Math.round(sh.dupLen));
   check(/обща отсечка\s·\s.*км\s·\sминава се веднъж/.test(sh.row), 'ред в списъка: ' + sh.row);
   // Клик върху махнатия дубликат (отблизо, върху Y) не прави нищо.
@@ -462,7 +463,7 @@ function barFits() {
   await p3.mouse.click(yq.x, yq.y);
   s3 = await st3();
   const len0 = s3.len;
-  const jump = await p3.evaluate(() => { const G = __gpxk.G, a = G.items[G.items.length - 2], b = G.items[G.items.length - 1]; const e = a.pts[a.pts.length - 1], f = b.pts[0]; return U.hav(e[0], e[1], f[0], f[1]); });
+  const jump = await p3.evaluate(() => { const R = __gpxk.G.items.filter(g => !g.auto), a = R[R.length - 2], b = R[R.length - 1]; const e = a.pts[a.pts.length - 1], f = b.pts[0]; return U.hav(e[0], e[1], f[0], f[1]); });
   check(s3.items === 3, 'клик върху чакащия дубликат: влиза в маршрута (' + s3.items + ' части), дължина ' + Math.round(len0));
   await p3.evaluate(() => { const G = __gpxk.G, b = U.boundsOf([G.pts]); __gpxk.map.setView((b.s + b.n) / 2, (b.w + b.e) / 2, 15); });
   await p3.waitForFunction(() => (__gpxk.ui.markers || []).length === 1);
