@@ -255,3 +255,84 @@ near(gTr.autoGaps[0].d0, T.len - T._cum[gp1.length], 1, 'в обратна по�
 T.openGaps = [rT100.closedGaps[0].a];
 assert.strictEqual(Core.analyze([T], 100).gaps.length, 1, '"Отвори пак" в трака');
 console.log('markers/gaps OK');
+
+// ---- Свръзки между два трака: точката на прекъсване в обхвата на отклонението ----
+// LA на изток; LB върви 1,6 км успоредно на 10 м (дубликат), после завива на север;
+// LC започва на 25 м северно от края на LA (над отклонението, без обща отсечка).
+var LA = { id: 'LA', pts: line(42.9, 24.70, 42.9, 24.75, 200) };
+var LB = { id: 'LB', pts: line(42.90009, 24.71, 42.90009, 24.73, 80).concat(line(42.90009, 24.7302, 42.93, 24.73, 120)) };
+var LC = { id: 'LC', pts: line(42.900225, 24.75, 42.92, 24.75, 80) };
+var rl = decided([LA, LB, LC], 20), byL = { LA: LA, LB: LB, LC: LC };
+function partsL(id) { return rl.byTrack[id].filter(function (s) { return s.kind === 'part'; }); }
+function onTrack(t, p) { return Core.nearestOnTrack(t, p[0], p[1]).dist; }
+var la = partsL('LA'), lb = partsL('LB'), lc = partsL('LC');
+console.log('свръзки', la.map(function (s) { return Math.round(s.a) + '-' + Math.round(s.b); }), lb.map(function (s) { return Math.round(s.a) + '-' + Math.round(s.b); }));
+assert.strictEqual(la.length, 2, 'LA се дели там, където LB се отделя');
+assert.strictEqual(lb.length, 1);
+// Началото на приетата част на LB (точката на прекъсване) е в обхвата на отклонението до LA.
+var lbStart = Core.pointAt(LB, lb[0].a);
+assert.ok(onTrack(LA, lbStart) <= 20, 'точката на прекъсване е в обхвата на отклонението: ' + onTrack(LA, lbStart).toFixed(1) + ' м от LA');
+var jl = rl.junctions.filter(function (j) { return U.hav(j.lat, j.lon, lbStart[0], lbStart[1]) < 30; })[0];
+assert.ok(jl && jl.links && jl.links.length, 'точката носи свръзките си');
+(jl.links || []).forEach(function (l) {
+  var p = jl.branches[l.a], q = jl.branches[l.b];
+  assert.ok(l.d > 1 && l.d <= 20, 'свръзката е до отклонението: ' + l.d.toFixed(1));
+  assert.ok(onTrack(byL[p.trackId], p.at) < 0.5 && onTrack(byL[q.trackId], q.at) < 0.5, 'краищата на свръзката са върху своя трак');
+});
+// Маршрут LA -> LB: скокът се затваря сам, между частите.
+var gl = Core.routeGeometry({ items: [P(la[0]), P(lb[0])] }, byL, rl);
+var lk = gl.items.filter(function (g) { return g.auto; });
+console.log('LA -> LB', gl.items.map(function (g) { return g.item.type; }), 'свръзка', lk.map(function (g) { return g.len.toFixed(1); }), 'дупки', gl.gaps.length);
+assert.strictEqual(gl.gaps.length, 0, 'под отклонението между два трака не е дупка');
+assert.strictEqual(lk.length, 1, 'една свръзка');
+assert.strictEqual(gl.items.indexOf(lk[0]), 1, 'свръзката е между двете части');
+assert.strictEqual(lk[0].idx, null, 'свръзката не е в route.items');
+assert.strictEqual(gl.autoGaps.length, 1); assert.strictEqual(gl.autoGaps[0].kind, 'route');
+assert.ok(lk[0].len > 1 && lk[0].len <= 20, 'дължина на свръзката ' + lk[0].len.toFixed(1));
+assert.ok(onTrack(LA, lk[0].pts[0]) < 0.5, 'свръзката тръгва от LA');
+assert.ok(onTrack(LB, lk[0].pts[1]) < 0.5, 'свръзката стига точно до LB (разстояние 0)');
+near(gl.len, la[0].len + lb[0].len + lk[0].len, 1, 'дължината на свръзката влиза в маршрута');
+assert.ok(onTrack(LA, gl.pts[0]) < 0.5 && onTrack(LB, gl.pts[gl.pts.length - 1]) < 0.5, 'стартът е на LA, краят на LB');
+for (var li = 1; li < gl.items.length; li++) {
+  var pe = gl.items[li - 1].pts[gl.items[li - 1].pts.length - 1], ns = gl.items[li].pts[0];
+  assert.ok(U.hav(pe[0], pe[1], ns[0], ns[1]) < 0.5, 'без скок между елемент ' + (li - 1) + ' и ' + li);
+}
+// Пръстенът по маршрута лежи върху продължаващия трак - и в двете посоки.
+function forkOn(geo, t) {
+  var f = Core.routeForks(geo, rl.junctions, 20, byL).filter(function (x) { return x.j === jl; })[0];
+  assert.ok(f && f.at, 'маршрутът минава през точката');
+  return onTrack(t, f.at);
+}
+assert.ok(forkOn(gl, LB) < 0.5, 'LA -> LB: точката е върху LB');
+var gAA = Core.routeGeometry({ items: [P(la[0]), P(la[1])] }, byL, rl);
+assert.ok(forkOn(gAA, LA) < 0.5, 'LA -> LA: точката е върху LA, не на ' + onTrack(LA, [jl.lat, jl.lon]).toFixed(1) + ' м от него');
+var gBA = Core.routeGeometry({ items: [P(lb[0], true), P(la[1])] }, byL, rl);
+assert.strictEqual(gBA.gaps.length, 0); assert.strictEqual(gBA.autoGaps.length, 1, 'LB -> LA: свръзка');
+assert.ok(forkOn(gBA, LA) < 0.5, 'LB -> LA: точката е върху LA');
+// Над отклонението между два трака дупката си остава дупка (тук 25 м при 20 м).
+var gC = Core.routeGeometry({ items: [P(la[1]), P(lc[0])] }, byL, rl);
+assert.strictEqual(gC.gaps.length, 1, 'дупка от 25 м между LA и LC остава дупка');
+assert.strictEqual(gC.autoGaps.length, 0);
+near(gC.gaps[0].d, 25, 1, 'дупката е 25 м');
+var gC40 = Core.routeGeometry({ items: [P(la[1]), P(lc[0])] }, byL, Object.assign({}, rl, { tol: 40 }));
+assert.ok(gC40.gaps.length === 0 && gC40.autoGaps.length === 1, 'при 40 м същата дупка се свързва');
+// "Отвори пак": свръзката става дупка.
+var e0 = lk[0].pts[0], s0 = lk[0].pts[1];
+var gO = Core.routeGeometry({ items: [P(la[0]), P(lb[0])], openGaps: [[e0[0], e0[1], s0[0], s0[1]]] }, byL, rl);
+assert.ok(gO.gaps.length === 1 && gO.autoGaps.length === 0 && !gO.items.some(function (g) { return g.auto; }), '"Отвори пак" връща дупката');
+// Ръчна връзка (draw с link), останала в края: слага се между частите, стартът и краят са от трак.
+var mid = [(e0[0] + s0[0]) / 2, (e0[1] + s0[1]) / 2];
+var rtL = { items: [P(la[1]), P(lc[0]), { type: 'draw', link: true, pts: [{ lat: 42.9001, lon: 24.75 }] }] };
+var gD = Core.routeGeometry(rtL, byL, rl);
+var seq = gD.items.filter(function (g) { return !g.auto; }).map(function (g) { return g.item.type; });
+console.log('ръчна връзка', seq, 'дупки', gD.gaps.length);
+assert.deepStrictEqual(seq, ['part', 'draw', 'part'], 'ръчната връзка е между двете части');
+assert.strictEqual(rtL.items[2].type, 'draw', 'route.items не се пипа');
+assert.ok(onTrack(LA, gD.pts[0]) < 0.5 && onTrack(LC, gD.pts[gD.pts.length - 1]) < 0.5, 'стартът е на LA, краят на LC - не върху връзката');
+// Същото с два трака и начертана точка между LA и LB (при махнато свързване).
+var gD2 = Core.routeGeometry({ items: [P(la[0]), P(lb[0]), { type: 'draw', link: true, pts: [{ lat: mid[0], lon: mid[1] }] }], openGaps: [[e0[0], e0[1], s0[0], s0[1]]] }, byL, rl);
+assert.ok(onTrack(LA, gD2.pts[0]) < 0.5 && onTrack(LB, gD2.pts[gD2.pts.length - 1]) < 0.5, 'LA -> LB с ръчна връзка: стартът и краят са от трак');
+// Стар чертан участък в края (без link) си остава там - запазените маршрути не се променят.
+var gOld = Core.routeGeometry({ items: [P(la[1]), P(lc[0]), { type: 'draw', pts: [{ lat: 42.95, lon: 24.75 }] }] }, byL, rl);
+assert.strictEqual(gOld.items[gOld.items.length - 1].item.type, 'draw', 'стар чертан край остава');
+console.log('свръзки OK');

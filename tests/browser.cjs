@@ -541,6 +541,81 @@ function barFits() {
   await p3.screenshot({ path: path.join(OUT, 'gaps-1280.png') });
   await ctx3.close();
 
+  // ---- Свръзки между два трака: без дупка при махнат дубликат, стартът и краят са от трак ----
+  // LA на изток; LB върви успоредно на 10 м и завива на север; LC започва на 25 м от края на LA.
+  const ctx4 = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const p4 = await ctx4.newPage();
+  p4.on('pageerror', e => errors.push('pageerror: ' + e.message));
+  p4.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text()) && !/api\.opentopodata\.org/.test(m.text())) errors.push('console: ' + m.text()); });
+  await p4.goto(url);
+  await p4.waitForFunction(() => window.__gpxk && window.__gpxk.ready);
+  await p4.setInputFiles('#fileInput', [
+    writeGpx('LA', line(42.5, 24.70, 42.5, 24.75, 200)),
+    writeGpx('LB', line(42.50009, 24.71, 42.50009, 24.73, 80).concat(line(42.50009, 24.7302, 42.53, 24.73, 120))),
+    writeGpx('LC', line(42.500225, 24.75, 42.52, 24.75, 80))
+  ]);
+  await p4.waitForFunction(() => __gpxk.S.tracks.length === 3);
+  await p4.evaluate(() => { const b = U.boundsOf(__gpxk.S.tracks.map(t => t.pts)); __gpxk.map.setView((b.s + b.n) / 2, (b.w + b.e) / 2, 14); });
+  await p4.waitForFunction(() => (__gpxk.ui.markers || []).length === 1);
+  const mL = await p4.evaluate(() => __gpxk.ui.markers[0]);
+  await p4.mouse.click(mL.x, mL.y);
+  await p4.waitForFunction(() => __gpxk.A.dups.length === 1);
+  const at4 = (ti, k, f) => p4.evaluate(([ti, k, f]) => { const t = __gpxk.S.tracks[ti], s = __gpxk.A.byTrack[t.id].filter(x => x.kind === 'part' && !x.pend)[k]; const p = window.Core.pointAt(t, s.a + (s.b - s.a) * f); return __gpxk.map.project(p[0], p[1]); }, [ti, k, f]);
+  let q4 = await at4(0, 0, 0.4); await p4.mouse.click(q4.x, q4.y);
+  q4 = await at4(1, 0, 0.6); await p4.mouse.click(q4.x, q4.y);
+  const st4 = () => p4.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))).then(() => p4.evaluate(() => {
+    const G = __gpxk.G, S = __gpxk.S, T = S.tracks, r = S.routes.find(x => x.id === S.curId), on = (t, p) => window.Core.nearestOnTrack(t, p[0], p[1]).dist;
+    const real = G.items.filter(g => !g.auto && !g.link), links = G.items.filter(g => g.auto);
+    const f = (G.forks || []).filter(x => x.at)[0], ring = f && (__gpxk.ui.rings || []).filter(o => o.selected)[0], fq = f && __gpxk.map.project(f.at[0], f.at[1]);
+    const lastT = T[T.findIndex(t => t.id === real[real.length - 1].item.trackId)];
+    return { items: r.items.map(i => i.type === 'draw' ? 'draw' : T.findIndex(t => t.id === i.trackId)), count: G.count, sParts: document.querySelector('#sParts').textContent,
+      gaps: G.gaps.length, auto: (G.autoGaps || []).length, linkLen: links[0] ? links[0].len : null, len: G.len, partsLen: real.reduce((s, g) => s + g.len, 0) + links.reduce((s, g) => s + g.len, 0),
+      linkOnB: links[0] ? on(T[1], links[0].pts[1]) : null, forkOn: f ? on(lastT, f.at) : null, jOn: f ? on(lastT, [f.j.lat, f.j.lon]) : null, ringPx: ring && fq ? Math.hypot(ring.x - fq.x, ring.y - fq.y) : null,
+      firstPart: real[0] && real[0].item.type, lastPart: real[real.length - 1] && real[real.length - 1].item.type,
+      startOn: on(T[0], G.pts[0]), endOn: on(lastT, G.pts[G.pts.length - 1]),
+      closedRows: Array.from(document.querySelectorAll('#gapsList .gap-note.closed')).map(e => e.textContent.replace(/\s+/g, ' ').trim()),
+      openRows: Array.from(document.querySelectorAll('#gapsList .gap-note:not(.closed)')).map(e => Array.from(e.querySelectorAll('button')).map(b => b.textContent)),
+      linkRows: Array.from(document.querySelectorAll('#partsList li.link')).map(e => e.textContent.replace(/\s+/g, ' ').trim()), badges: document.querySelectorAll('#partsList .badge').length };
+  }));
+  let s4 = await st4();
+  check(JSON.stringify(s4.items) === '[0,1]' && s4.count === 2 && s4.sParts === '2' && s4.badges === 2, 'LA и LB в маршрута: две части, "Части" = ' + s4.sParts + ' ' + JSON.stringify(s4.items));
+  check(s4.gaps === 0 && s4.openRows.length === 0 && s4.auto === 1 && s4.linkLen > 1 && s4.linkLen <= 20, 'дупката между LA и LB (под отклонението) не е дупка: свръзка ' + (s4.linkLen && s4.linkLen.toFixed(1)) + ' м, отворени дупки ' + s4.openRows.length);
+  check(s4.closedRows.length === 1 && /^Затворена дупка · \d+ м Отвори пак$/.test(s4.closedRows[0]), 'ред под частите: ' + JSON.stringify(s4.closedRows));
+  check(Math.abs(s4.len - s4.partsLen) < 1, 'дължината на свръзката влиза в маршрута: ' + Math.round(s4.len) + ' ~ ' + Math.round(s4.partsLen));
+  check(s4.linkOnB !== null && s4.linkOnB < 0.5 && s4.forkOn !== null && s4.forkOn < 0.5 && s4.ringPx !== null && s4.ringPx < 1, 'точката на свръзката е върху LB (продължаващия трак): ' + JSON.stringify([s4.linkOnB, s4.forkOn, s4.ringPx]));
+  check(s4.firstPart === 'part' && s4.lastPart === 'part' && s4.startOn < 0.5 && s4.endOn < 0.5, '"Старт" е върху LA, "Край" е върху LB: ' + JSON.stringify([s4.startOn, s4.endOn]));
+  await p4.evaluate(() => { const G = __gpxk.G, b = U.boundsOf([G.pts]); __gpxk.map.setView((b.s + b.n) / 2, (b.w + b.e) / 2, 14); });
+  await p4.screenshot({ path: path.join(OUT, 'link-1280.png') });
+  // "Отвори пак": свръзката става дупка с двата бутона; "Отмени" я затваря.
+  await p4.click('#gapsList .gap-note.closed [data-gapact="reopen"]');
+  s4 = await st4();
+  check(s4.gaps === 1 && s4.auto === 0 && s4.closedRows.length === 0 && s4.openRows.length === 1 && JSON.stringify(s4.openRows[0]) === JSON.stringify(['Затвори с чертаене', 'Свържи направо']), '"Отвори пак": свръзката е дупка с бутоните ' + JSON.stringify(s4.openRows));
+  await p4.click('#undoBtn');
+  s4 = await st4();
+  check(s4.gaps === 0 && s4.auto === 1 && s4.closedRows.length === 1, '"Отмени" я затваря пак');
+  // Над отклонението: LA (източната част) и LC на 25 м - дупката остава, с бутоните.
+  await p4.evaluate(() => { const S = __gpxk.S, r = S.routes.find(x => x.id === S.curId), T = S.tracks, A = __gpxk.A;
+    const a = A.byTrack[T[0].id].filter(s => s.kind === 'part')[1], c = A.byTrack[T[2].id].filter(s => s.kind === 'part')[0];
+    r.items = [{ type: 'part', trackId: T[0].id, a: a.a, b: a.b, rev: false }, { type: 'part', trackId: T[2].id, a: c.a, b: c.b, rev: false }]; __gpxk.refresh(); });
+  s4 = await st4();
+  check(s4.gaps === 1 && s4.auto === 0 && s4.openRows.length === 1 && s4.openRows[0].length === 2 && s4.closedRows.length === 0, 'дупка от 25 м между LA и LC (над отклонението) остава дупка с двата бутона');
+  // Ръчна връзка, без избрана дупка: клик в "Добавяне" между края на LA и началото на LC.
+  const mid4 = await p4.evaluate(() => { const T = __gpxk.S.tracks, e = T[0].pts[T[0].pts.length - 1], s = T[2].pts[0]; __gpxk.map.setView((e[0] + s[0]) / 2, (e[1] + s[1]) / 2, 18); return __gpxk.map.project((e[0] + s[0]) / 2, (e[1] + s[1]) / 2); });
+  await p4.click('[data-mode="add"]');
+  await p4.mouse.click(mid4.x, mid4.y);
+  await p4.click('[data-mode="select"]');
+  s4 = await st4();
+  check(JSON.stringify(s4.items) === '[0,"draw",2]' && s4.gaps === 0, 'ръчната връзка влиза между двете части, не в края: ' + JSON.stringify(s4.items));
+  check(s4.firstPart === 'part' && s4.lastPart === 'part' && s4.startOn < 0.5 && s4.endOn < 0.5, 'с ръчна връзка "Старт" и "Край" остават върху трак: ' + JSON.stringify([s4.startOn, s4.endOn]));
+  check(s4.count === 2 && s4.sParts === '2' && s4.linkRows.length === 1 && /^връзка · \d+ м · между частите/.test(s4.linkRows[0]), 'връзката не е част: "Части" = ' + s4.sParts + ', ред ' + JSON.stringify(s4.linkRows));
+  await p4.evaluate(() => { const G = __gpxk.G, b = U.boundsOf([G.pts]); __gpxk.map.setView((b.s + b.n) / 2, (b.w + b.e) / 2, 15); });
+  await p4.screenshot({ path: path.join(OUT, 'link-drawn-1280.png') });
+  await p4.setViewportSize({ width: 390, height: 800 });
+  s4 = await st4();
+  check(await p4.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'на 390 px с редовете за връзка няма хоризонтален скрол');
+  await p4.screenshot({ path: path.join(OUT, 'link-390.png'), fullPage: true });
+  await ctx4.close();
+
   check(errors.length === 0, 'конзолата е чиста' + (errors.length ? ': ' + errors.join(' | ') : ''));
   await browser.close();
   server.close();
