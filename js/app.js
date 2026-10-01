@@ -30,7 +30,7 @@
   var ui = {
     mode: 'select', hover: null, hl: null, cut: null, drawTarget: null, sel: null,
     undo: [], base: U.LS.get('base', 'sat'), labels: U.LS.get('labels', true),
-    grade: U.LS.get('grade', true), follower: null, pos: null, prog: null, followView: 'map',
+    grade: U.LS.get('grade', true), fold: U.LS.get('fold', {}), follower: null, pos: null, prog: null, followView: 'map',
     autoCenter: true, pin: null, profHover: null, picUrl: null, picMeta: null
   };
   var map;
@@ -110,7 +110,14 @@
   }
 
   // ---- Отмяна ----
-  function pushUndo() {
+  // full: пълен отпечатък (траковете и целия текущ маршрут) - за "Нов", който маха и траковете.
+  function pushUndo(full) {
+    if (full) {
+      ui.undo.push(JSON.stringify({ full: true, rid: S.curId, tracks: S.tracks.map(plainTrack), route: cur() }));
+      if (ui.undo.length > 100) ui.undo.shift();
+      $('#undoBtn').disabled = false;
+      return;
+    }
     ui.undo.push(JSON.stringify({
       rid: S.curId, items: cur().items,
       cuts: S.tracks.map(function (t) { return [t.id, t.cuts || []]; }),
@@ -126,6 +133,12 @@
     if (!s) return;
     s = JSON.parse(s);
     var r = S.routes.filter(function (x) { return x.id === s.rid; })[0];
+    if (s.full) {
+      S.tracks = s.tracks;
+      if (r) S.routes[S.routes.indexOf(r)] = s.route; else S.routes.unshift(s.route);
+      S.curId = s.rid;
+      s.cuts = []; r = null;
+    }
     if (r) { r.items = s.items; r.forks = s.forks || []; r.openGaps = s.openGaps || []; S.curId = r.id; }
     s.cuts.forEach(function (c) { var t = track(c[0]); if (t) t.cuts = c[1]; });
     (s.skips || []).forEach(function (c) { var t = track(c[0]); if (t) { t.skips = c[1]; t.openGaps = c[2]; } });
@@ -1156,6 +1169,7 @@
     ol.innerHTML = html.join('');
     $('#partsCount').textContent = '(' + G.count + ')';
     $('#partsEmpty').hidden = G.items.length > 0;
+    $('#clearPartsBtn').disabled = !cur().items.length;
     var gh = G.gaps.map(function (gp) {
       var a = G.items.filter(function (x) { return x.idx === gp.afterIdx; })[0], b = G.items.filter(function (x) { return x.idx === gp.beforeIdx; })[0];
       return '<div class="gap-note" data-gap="' + gp.beforeIdx + '">дупка ' + U.dist(gp.d) + ' между част ' + (a ? a.no : '?') + ' и част ' + (b ? b.no : '?') +
@@ -1192,6 +1206,7 @@
 
   function renderTracks() {
     $('#tracksCount').textContent = '(' + S.tracks.length + ')';
+    $('#clearTracksBtn').disabled = !S.tracks.length && !cur().items.length;
     $('#tracksList').innerHTML = S.tracks.map(function (t) {
       Core.prep(t);
       var cutL = (t.cuts || []).reduce(function (s, c) { return s + (c.b - c.a); }, 0);
@@ -1218,6 +1233,10 @@
     $('#dupsPendingNote').hidden = !np;
     $('#dupsSkipped').textContent = 'Пропуснати дубликати: ' + n + ' ' + (n === 1 ? 'участък' : 'участъка') + ' · ' + U.km(L);
     $('#dupsSkipped').hidden = !!np && !n;
+    var cnt = [];
+    if (np) cnt.push(np + ' за решение');
+    if (n) cnt.push(n + ' ' + (n === 1 ? 'пропуснат' : 'пропуснати'));
+    $('#dupsCount').textContent = cnt.length ? cnt.join(' · ') : '(0)';
   }
 
   function renderCuts() {
@@ -1784,6 +1803,55 @@
     else { renderRoutes(); saveSoon(); }
   }
 
+  // ---- Изчистване ----
+  // "Нов": маха всички тракове и с тях частите на текущия маршрут (част без трак не може).
+  // Записаните маршрути остават; "Отмени" връща всичко от пълния отпечатък.
+  function clearTracks() {
+    var r = cur();
+    if (!S.tracks.length && !r.items.length) return;
+    pushUndo(true);
+    S.tracks = [];
+    r.items = []; r.forks = []; r.openGaps = [];
+    ui.cut = null; ui.sel = null; ui.drawTarget = null; ui.hl = null;
+    hidePointMenu();
+    r.modified = Date.now();
+    analyzeNow(); saveNow();
+    toast('Траковете и маршрутът са махнати. "Отмени" ги връща.');
+  }
+  // "Изтрий": маха всички части на маршрута, траковете остават.
+  function clearParts() {
+    var r = cur();
+    if (!r.items.length) return;
+    pushUndo();
+    r.items = []; r.forks = []; r.openGaps = [];
+    ui.sel = null; ui.drawTarget = null;
+    hidePointMenu();
+    routeChanged();
+    toast('Частите са махнати. "Отмени" ги връща.');
+  }
+
+  // ---- Свиващи се панели ----
+  // "Точки", "Дубликати" и "Изрязано от тракове" са свити, докато не се отворят; помни се в браузъра.
+  function applyFolds() {
+    $$('[data-fold]').forEach(function (c) {
+      var open = ui.fold[c.dataset.fold] === true;
+      c.classList.toggle('open', open);
+      $('.fold-t', c).setAttribute('aria-expanded', open ? 'true' : 'false');
+      $('.fold-b', c).hidden = !open;
+    });
+  }
+  function toggleFold(key) {
+    ui.fold[key] = ui.fold[key] !== true;
+    U.LS.set('fold', ui.fold);
+    applyFolds();
+  }
+
+  var MONTHS_FULL = ['януари', 'февруари', 'март', 'април', 'май', 'юни', 'юли', 'август', 'септември', 'октомври', 'ноември', 'декември'];
+  function showVersion() {
+    var d = new Date(GPXK_DATE + 'T12:00:00');
+    $('#appVersion').textContent = GPXK_VERSION + (isNaN(d) ? '' : ' · ' + d.getDate() + ' ' + MONTHS_FULL[d.getMonth()] + ' ' + d.getFullYear());
+  }
+
   // ---- Тема ----
   function setTheme(m) {
     document.documentElement.setAttribute('data-app-mode', m);
@@ -1815,6 +1883,8 @@
       case 'center': ui.autoCenter = true; if (ui.pos) map.setView(ui.pos.lat, ui.pos.lon, Math.max(map.zoom, 15)); break;
       case 'to-panel': $('#panel').scrollIntoView({ behavior: 'smooth' }); break;
       case 'undo': undo(); break;
+      case 'clear-tracks': clearTracks(); break;
+      case 'clear-parts': clearParts(); break;
       case 'zoom-in': map.zoomAround(Math.round(map.zoom) + 1); break;
       case 'zoom-out': map.zoomAround(Math.round(map.zoom) - 1); break;
       case 'fit': fitRoute(); break;
@@ -1840,6 +1910,9 @@
     document.addEventListener('click', function (e) {
       var b = e.target.closest('[data-act]');
       if (b && !b.disabled) { e.preventDefault(); onAction(b.dataset.act, b); }
+    });
+    $$('[data-fold]').forEach(function (c) {
+      $('.fold-t', c).addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); toggleFold(c.dataset.fold); });
     });
     $$('#tools [data-mode]').forEach(function (b) { b.addEventListener('click', function () { setMode(b.dataset.mode); }); });
     $$('.mapctl .seg.base button').forEach(function (b) {
@@ -2037,6 +2110,8 @@
     applyLayers();
     $('#themeBtn').textContent = document.documentElement.getAttribute('data-app-mode') === 'dark' ? 'Светла тема' : 'Тъмна тема';
     bind();
+    applyFolds();
+    showVersion();
     setMode('select');
     var view = U.LS.get('view', null);
     if (view && isFinite(view.lat) && isFinite(view.lon)) map.setView(view.lat, view.lon, view.zoom);

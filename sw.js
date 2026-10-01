@@ -1,8 +1,9 @@
 /* GPX конструктор - офлайн обвивка: файловете на приложението се пазят в кеша,
    за да се отваря страницата и без връзка (картата без връзка не се зарежда,
    но запазената картина и следенето работят). Първо мрежа, после кеш. */
-var CACHE = 'gpxk-v8';
-var SHELL = ['./', 'index.html', 'css/app.css', 'js/util.js', 'js/map.js', 'js/gpx.js', 'js/core.js', 'js/elev.js', 'js/snapshot.js', 'js/follow.js', 'js/app.js'];
+importScripts('js/version.js'); // GPXK_VERSION, GPXK_CACHE
+var CACHE = GPXK_CACHE;
+var SHELL = ['./', 'index.html', 'css/app.css', 'js/version.js', 'js/util.js', 'js/map.js', 'js/gpx.js', 'js/core.js', 'js/elev.js', 'js/snapshot.js', 'js/follow.js', 'js/app.js'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); }));

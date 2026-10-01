@@ -3,6 +3,7 @@
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const vm = require('vm');
 const { chromium } = require(process.env.PW || '/opt/nvm/versions/node/v22.23.2/lib/node_modules/playwright');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -615,6 +616,107 @@ function barFits() {
   check(await p4.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'на 390 px с редовете за връзка няма хоризонтален скрол');
   await p4.screenshot({ path: path.join(OUT, 'link-390.png'), fullPage: true });
   await ctx4.close();
+
+  // ---- "Нов", "Изтрий", свиващи се панели, версия ----
+  const ctx5 = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const p5 = await ctx5.newPage();
+  p5.on('pageerror', e => errors.push('pageerror(5): ' + e.message));
+  p5.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text()) && !/api\.opentopodata\.org/.test(m.text())) errors.push('console(5): ' + m.text()); });
+  await p5.goto(url);
+  await p5.waitForFunction(() => window.__gpxk && window.__gpxk.ready);
+  // Версия: в дъното и в името на кеша от sw.js.
+  const verText = (await p5.textContent('#appVersion')).trim();
+  const ver = (verText.match(/^\d+\.\d+\.\d+/) || [''])[0];
+  check(ver === '1.0.0' && await p5.isVisible('#appVersion') && /^Версия 1\.0\.0 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
+  const swCache = (() => { const ctx = { importScripts: f => vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx), addEventListener: () => {} }; ctx.self = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8') + ';this.__c = CACHE;', ctx); return ctx.__c; })();
+  check(swCache === 'gpxk-v9-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
+  const liveCaches = await p5.evaluate(() => navigator.serviceWorker.ready.then(() => new Promise(r => { const t0 = Date.now(); (function poll() { caches.keys().then(k => (k.length || Date.now() - t0 > 8000) ? r(k) : setTimeout(poll, 100)); })(); })));
+  check(liveCaches.length === 1 && liveCaches[0] === swCache, 'в браузъра работникът е създал кеш ' + JSON.stringify(liveCaches));
+  // Бутоните са неактивни, когато няма какво да изчистят.
+  const btns5 = () => p5.evaluate(() => ({ nov: document.querySelector('#clearTracksBtn').disabled, izt: document.querySelector('#clearPartsBtn').disabled,
+    novIn: !!document.querySelector('#tracksList ~ .row #clearTracksBtn'), iztIn: !!document.querySelector('.card-head #clearPartsBtn'),
+    novT: document.querySelector('#clearTracksBtn').textContent, iztT: document.querySelector('#clearPartsBtn').textContent,
+    danger: !!document.querySelector('#clearTracksBtn.danger, #clearPartsBtn.danger') }));
+  let b5 = await btns5();
+  check(b5.nov && b5.izt && b5.novIn && b5.iztIn && b5.novT === 'Нов' && b5.iztT === 'Изтрий' && !b5.danger, 'празно: "Нов" (при траковете) и "Изтрий" (в заглавието на частите) са неактивни ' + JSON.stringify(b5));
+  const heads = await p5.evaluate(() => Array.from(document.querySelectorAll('.cols h2')).map(h => h.firstChild.nodeType === 3 ? h.firstChild.textContent.trim() : h.querySelector('.fold-t').childNodes[1].textContent.trim()));
+  check(JSON.stringify(heads) === JSON.stringify(['Части в маршрута', 'Точки', 'Тракове-източници', 'Дубликати', 'Изрязано от тракове']), 'заглавията на панелите: ' + JSON.stringify(heads));
+  // Свити в началото.
+  const FOLDS = [['#ptsCard', '#ptsCount'], ['#dupsCard', '#dupsCount'], ['#cutsCard', '#cutsCount']];
+  const foldSt = () => p5.evaluate(F => F.map(([c, n]) => { const card = document.querySelector(c), b = card.querySelector('.fold-b'), t = card.querySelector('.fold-t'), cnt = document.querySelector(n);
+    return { open: !b.hidden && b.getBoundingClientRect().height > 0, aria: t.getAttribute('aria-expanded'), cnt: cnt.textContent, cntShown: cnt.getBoundingClientRect().width > 0, inTitle: t.contains(cnt) }; }), FOLDS);
+  let f5 = await foldSt();
+  check(f5.every(f => !f.open && f.aria === 'false'), 'трите панела са свити при отваряне ' + JSON.stringify(f5.map(f => f.open)));
+  // Тракове и част в маршрута.
+  const fx5 = f => path.join(__dirname, 'fixtures', f);
+  await p5.click('#empty [data-act="add-tracks"]');
+  await p5.setInputFiles('#fileInput', [fx5('hisarya-izhod.gpx'), fx5('momina-banya.gpx'), fx5('obratno.gpx')]);
+  await p5.waitForFunction(() => __gpxk.S.tracks.length === 3 && __gpxk.A.pend.length === 1);
+  await p5.keyboard.press('Escape');
+  await p5.evaluate(() => { const S = __gpxk.S, A = __gpxk.A, r = S.routes.find(x => x.id === S.curId);
+    const a = A.parts.filter(p => p.trackId === S.tracks[0].id)[0], c = A.parts.filter(p => p.trackId === S.tracks[2].id)[0];
+    S.tracks[2].cuts = [{ a: 0, b: 50 }];
+    r.items = [{ type: 'part', trackId: a.trackId, a: a.a, b: a.b, rev: false }, { type: 'draw', pts: [{ lat: 42.51, lon: 24.70, name: 'Чешма' }] }];
+    window.__gpxk.refresh(); });
+  await p5.waitForFunction(() => document.querySelector('#cutsCount').textContent === '(1)');
+  const saved5 = async () => { for (let i = 0; i < 100; i++) { if (await p5.evaluate(() => U.DB.get('collection').then(c => { const r = c && c.routes.find(x => x.id === c.curId); return !!r && r.items.length === 2 && c.tracks.length === 3; }))) return true; await p5.waitForTimeout(100); } return false; };
+  check(await saved5(), 'частите и изрезката са записани в браузъра');
+  f5 = await foldSt();
+  check(f5.every(f => !f.open && f.cntShown && f.inTitle) && f5[0].cnt === '(1)' && f5[1].cnt === '1 за решение' && f5[2].cnt === '(1)', 'свитите заглавия носят броячите: ' + JSON.stringify(f5.map(f => f.cnt)));
+  // Клик върху свито заглавие само отваря - не пипа картата и не решава нищо.
+  const mapSt = () => p5.evaluate(() => JSON.stringify([__gpxk.map.getView(), __gpxk.A.pend.length, __gpxk.A.dups.length, __gpxk.S.routes.find(x => x.id === __gpxk.S.curId).items.length, __gpxk.ui.undo.length]));
+  const m0 = await mapSt();
+  for (const [c] of FOLDS) await p5.click(c + ' .fold-t');
+  f5 = await foldSt();
+  check(f5.every(f => f.open && f.aria === 'true'), 'клик върху заглавието отваря всеки от трите панела ' + JSON.stringify(f5.map(f => f.open)));
+  check(await mapSt() === m0, 'отварянето не пипа картата, дубликатите и маршрута');
+  await p5.click('#ptsCard .fold-t');
+  f5 = await foldSt();
+  check(!f5[0].open && f5[1].open && f5[2].open, 'втори клик свива панела');
+  await p5.reload();
+  await p5.waitForFunction(() => window.__gpxk && window.__gpxk.ready && __gpxk.S.tracks.length === 3);
+  f5 = await foldSt();
+  check(!f5[0].open && f5[1].open && f5[2].open && f5[0].cnt === '(1)', 'след презареждане всеки панел е както е оставен ' + JSON.stringify(f5.map(f => f.open)));
+  await p5.click('#dupsCard .fold-t'); await p5.click('#cutsCard .fold-t');
+  await p5.reload();
+  await p5.waitForFunction(() => window.__gpxk && window.__gpxk.ready && __gpxk.S.tracks.length === 3);
+  f5 = await foldSt();
+  check(f5.every(f => !f.open), 'свити и след следващо презареждане');
+  // "Изтрий": махат се частите, траковете остават; "Отмени" ги връща.
+  const rs5 = () => p5.evaluate(() => { const S = __gpxk.S, r = S.routes.find(x => x.id === S.curId);
+    return { tracks: S.tracks.map(t => t.id + ':' + t.pts.length + ':' + JSON.stringify(t.cuts || [])).join('|'), nTracks: S.tracks.length, items: JSON.stringify(r.items), n: r.items.length,
+      parts: document.querySelector('#partsCount').textContent, empty: !document.querySelector('#empty').hidden, routes: S.routes.length }; });
+  const r0 = await rs5();
+  b5 = await btns5();
+  check(!b5.nov && !b5.izt && r0.n === 2 && r0.nTracks === 3, 'с тракове и части двата бутона са активни');
+  await p5.click('#clearPartsBtn');
+  let r1 = await rs5(); b5 = await btns5();
+  check(r1.n === 0 && r1.tracks === r0.tracks && r1.parts === '(0)' && b5.izt && !b5.nov && r1.routes === r0.routes, '"Изтрий": частите са махнати, траковете остават, "Изтрий" е неактивен');
+  await p5.click('#undoBtn');
+  r1 = await rs5();
+  check(r1.items === r0.items && r1.tracks === r0.tracks, '"Отмени" връща частите');
+  // "Нов": махат се траковете и маршрутът; "Отмени" връща всичко.
+  await p5.click('#clearTracksBtn');
+  r1 = await rs5(); b5 = await btns5();
+  check(r1.nTracks === 0 && r1.n === 0 && r1.empty && b5.nov && b5.izt && r1.routes === r0.routes, '"Нов": няма тракове, няма части, подканата се вижда, записаните маршрути остават');
+  check(await p5.evaluate(() => __gpxk.A.parts.length === 0 && __gpxk.A.pend.length === 0 && __gpxk.G.pts.length === 0), '"Нов": картата е празна');
+  await p5.click('#undoBtn');
+  await p5.waitForFunction(() => __gpxk.S.tracks.length === 3);
+  r1 = await rs5();
+  check(r1.tracks === r0.tracks && r1.items === r0.items && !r1.empty && await p5.evaluate(() => __gpxk.A.pend.length === 1 && document.querySelector('#cutsCount').textContent === '(1)'), '"Отмени" връща траковете (с изрезките) и маршрута');
+  await saved5();
+  await p5.reload();
+  await p5.waitForFunction(() => window.__gpxk && window.__gpxk.ready);
+  r1 = await rs5();
+  check(r1.tracks === r0.tracks && r1.items === r0.items, 'върнатото е записано и след презареждане');
+  for (const [c] of FOLDS) await p5.click(c + ' .fold-t');
+  await p5.screenshot({ path: path.join(OUT, 'panels-1280.png'), fullPage: true });
+  await p5.setViewportSize({ width: 390, height: 800 });
+  check(await p5.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'на 390 px с новите бутони и панели няма хоризонтален скрол');
+  await p5.evaluate(() => document.documentElement.setAttribute('data-app-mode', 'dark'));
+  await p5.screenshot({ path: path.join(OUT, 'panels-390-dark.png'), fullPage: true });
+  await ctx5.close();
+
 
   check(errors.length === 0, 'конзолата е чиста' + (errors.length ? ': ' + errors.join(' | ') : ''));
   await browser.close();
