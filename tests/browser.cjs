@@ -798,9 +798,9 @@ function barFits() {
   // Версия: в дъното и в името на кеша от sw.js.
   const verText = (await p5.textContent('#appVersion')).trim();
   const ver = (verText.match(/^\d+\.\d+\.\d+/) || [''])[0];
-  check(ver === '1.0.4' && await p5.isVisible('#appVersion') && /^Версия 1\.0\.4 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
+  check(ver === '1.0.5' && await p5.isVisible('#appVersion') && /^Версия 1\.0\.5 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
   const swCache = (() => { const ctx = { importScripts: f => vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx), addEventListener: () => {} }; ctx.self = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8') + ';this.__c = CACHE;', ctx); return ctx.__c; })();
-  check(swCache === 'gpxk-v15-1.0.4' && swCache === 'gpxk-v15-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
+  check(swCache === 'gpxk-v16-1.0.5' && swCache === 'gpxk-v16-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
   const liveCaches = await p5.evaluate(() => navigator.serviceWorker.ready.then(() => new Promise(r => { const t0 = Date.now(); (function poll() { caches.keys().then(k => (k.length || Date.now() - t0 > 8000) ? r(k) : setTimeout(poll, 100)); })(); })));
   check(liveCaches.length === 1 && liveCaches[0] === swCache, 'в браузъра работникът е създал кеш ' + JSON.stringify(liveCaches));
   // Бутоните са неактивни, когато няма какво да изчистят.
@@ -1074,7 +1074,7 @@ function barFits() {
   // Следене след събуждане на екрана (1.0.4): същата сесия продължава, GPS се пуска наново.
   // Скриването се симулира с visibilityState; спрелият в Safari GPS - със заглушени стари watch-ове.
   const ctx9 = await browser.newContext({ viewport: { width: 390, height: 844 }, permissions: ['geolocation'], geolocation: { latitude: 42.5, longitude: 24.7 } });
-  await ctx9.addInitScript({ content: `
+  const GEO_INIT = `
     (function () {
       var g = window.__geo = { calls: 0, dead: 0, mute: false, err: null, wake: 0, vis: 'visible' };
       Object.defineProperty(document, 'visibilityState', { get: function () { return g.vis; }, configurable: true });
@@ -1096,7 +1096,8 @@ function barFits() {
         var w = new EventTarget(); w.released = false; w.type = 'screen'; w.release = function () { release(w); return Promise.resolve(); };
         g.held = w; return Promise.resolve(w);
       } } });
-    })();` });
+    })();`;
+  await ctx9.addInitScript({ content: GEO_INIT });
   const p9 = await ctx9.newPage();
   p9.on('pageerror', e => errors.push('p9 pageerror: ' + e.message));
   p9.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text()) && !/api\.opentopodata\.org/.test(m.text())) errors.push('p9 console: ' + m.text()); });
@@ -1122,11 +1123,11 @@ function barFits() {
   await ctx9.setGeolocation({ latitude: 42.5109, longitude: 24.7 });
   await p9.evaluate(() => __geo.err({ code: 3, message: 'timeout' })); // грешка, докато е скрито
   const h9 = await st9();
-  check(h9.on && h9.n === 2, 'грешка, докато страницата е скрита, не спира следенето');
+  check(h9.on && h9.n === a9.n, 'грешка, докато страницата е скрита, не спира следенето');
   // Връщане на екрана: GPS-ът се пуска наново, панелът чака.
   await p9.evaluate(() => { Follower.RETRY_MS = 1200; __geo.set('visible'); });
   const b9 = await st9();
-  check(b9.on && b9.calls === 2 && b9.t0 === a9.t0 && b9.n === 2, 'връщане на видимост без положение пуска GPS наново (watchPosition ' + b9.calls + ' пъти), същата сесия и часовник');
+  check(b9.on && b9.calls === 2 && b9.t0 === a9.t0 && b9.n === a9.n, 'връщане на видимост без положение пуска GPS наново (watchPosition ' + b9.calls + ' пъти), същата сесия и часовник');
   check(b9.msg === 'Чакам сигнал от GPS...', 'докато чака, панелът пише "' + b9.msg + '"');
   check(!h9.held, 'при скриване браузърът пуска ключалката');
   await p9.waitForFunction(() => !!__geo.held, null, { timeout: 3000 }).catch(() => {});
@@ -1141,14 +1142,14 @@ function barFits() {
   const c9 = await st9();
   const jump9 = 0.0101 * 111195;
   check(/^По линията си\. Точност на GPS: \d+\sм\.$/.test(c9.msg), 'при първото ново положение: "' + c9.msg + '"');
-  check(c9.n === 3 && Math.abs(c9.len - a9.len - jump9) < 15 && /^1[.,]2\sот\s2[.,]2\sкм$/.test(c9.done), 'правата линия през паузата влиза в "Изминати": ' + c9.done + ', записани ' + Math.round(a9.len) + ' → ' + Math.round(c9.len) + ' м');
+  check(c9.n > 3 && Math.abs(c9.len - a9.len - jump9) < 15 && /^1[.,]2\sот\s2[.,]2\sкм$/.test(c9.done), 'следата по трака през паузата влиза в "Изминати": ' + c9.done + ', записани ' + Math.round(a9.len) + ' → ' + Math.round(c9.len) + ' м, ' + c9.n + ' точки');
   check(!c9.live && c9.on, 'за жива сесия не излиза прозорец "Незавършено следене"');
   await p9.screenshot({ path: path.join(OUT, 'follow-wake-390.png') });
   // Връщане, при което GPS-ът е дал положение и докато е било скрито: не се пуска наново.
   await p9.evaluate(() => __geo.set('hidden'));
   await p9.evaluate(() => { __geo.dead = 0; });
   await ctx9.setGeolocation({ latitude: 42.5120, longitude: 24.7 });
-  await p9.waitForFunction(() => __gpxk.ui.follower.rec.length > 3, null, { timeout: 10000 });
+  await p9.waitForFunction(k => __gpxk.ui.follower.rec.length > k, c9.n, { timeout: 10000 });
   await p9.evaluate(() => __geo.set('visible'));
   const d9 = await st9();
   check(d9.calls === c9.calls && /^По линията си/.test(d9.msg), 'с положение и докато е скрито: GPS не се пуска наново, съобщението остава (' + c9.calls + '/' + d9.calls + ', "' + d9.msg + '")');
@@ -1170,8 +1171,101 @@ function barFits() {
   await p9.click('#followBar [data-act="follow-stop"]');
   check(await p9.evaluate(() => !__geo.held && document.querySelector('#fAwake').hidden), '"Стоп" пуска ключалката и маха реда за екрана');
   const e9 = await p9.evaluate(() => { const t = __gpxk.S.tracks[__gpxk.S.tracks.length - 1]; return { walk: t.walk, n: t.pts.length, len: t.len }; });
-  check(e9.walk && e9.n === 4 && e9.len > jump9, 'след "Стоп" изминатият трак е един, с правата линия (' + e9.n + ' точки, ' + Math.round(e9.len) + ' м)');
+  check(e9.walk && e9.n === g9.n && e9.n > c9.n && e9.len > jump9, 'след "Стоп" изминатият трак е един, със следата през паузата (' + e9.n + ' точки, ' + Math.round(e9.len) + ' м)');
   await ctx9.close();
+
+  // Следа по трака през дупка в GPS (1.0.5): ако и последната точка, и новата са до 20 м от маршрута,
+  // между тях влизат завоите на маршрута; иначе остава права линия.
+  const ctx10 = await browser.newContext({ viewport: { width: 1280, height: 800 }, permissions: ['geolocation'], geolocation: { latitude: 42.5, longitude: 24.7 } });
+  await ctx10.addInitScript({ content: GEO_INIT });
+  const p10 = await ctx10.newPage();
+  p10.on('pageerror', e => errors.push('p10 pageerror: ' + e.message));
+  p10.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text()) && !/api\.opentopodata\.org/.test(m.text())) errors.push('p10 console: ' + m.text()); });
+  await p10.goto(url);
+  await p10.waitForFunction(() => window.__gpxk && window.__gpxk.ready);
+  // Маршрут с два завоя: на изток, на север, пак на изток.
+  const zig = line(42.5, 24.70, 42.5, 24.71, 30).concat(line(42.5, 24.71, 42.51, 24.71, 30).slice(1), line(42.51, 24.71, 42.51, 24.72, 30).slice(1));
+  const useTrack = pg => pg.evaluate(() => { const S = __gpxk.S, t = S.tracks[S.tracks.length - 1], r = S.routes.find(x => x.id === S.curId); r.items = [{ type: 'part', trackId: t.id, a: 0, b: t.len, rev: false }]; __gpxk.refresh(); });
+  await p10.setInputFiles('#fileInput', writeGpx('zavoi', zig));
+  await p10.waitForFunction(() => __gpxk.S.tracks.length === 1);
+  await useTrack(p10);
+  // Състоянието на записа: брой точки, дължина и новите точки след индекс k (с разстоянието им до маршрута).
+  const st10 = k => p10.evaluate(k => { const f = __gpxk.ui.follower, G = __gpxk.G, rec = f.rec;
+    return { n: rec.length, len: U.lengthOf(rec), calls: __geo.calls, done: document.querySelector('#fDone').textContent,
+      add: rec.slice(k).map(p => ({ lat: p[0], lon: p[1], t: p[3], acc: p[4], off: Core.nearestOn(G.pts, G.cum, p[0], p[1]).dist })) }; }, k);
+  const near = (pts, lat, lon) => pts.some(p => U_hav(p.lat, p.lon, lat, lon) < 1);
+  function U_hav(a, b, c, d) { const R = 6371008.8, r = Math.PI / 180, x = Math.sin((c - a) * r / 2), y = Math.sin((d - b) * r / 2); return 2 * R * Math.asin(Math.sqrt(x * x + Math.cos(a * r) * Math.cos(c * r) * y * y)); }
+  const growTo = (pg, k) => pg.waitForFunction(k => __gpxk.ui.follower.rec.length > k, k, { timeout: 10000 });
+  await p10.click('#bar [data-act="follow"]');
+  await growTo(p10, 0);
+  await ctx10.setGeolocation({ latitude: 42.5, longitude: 24.7012 });
+  await growTo(p10, 1);
+  const a10 = await st10(0);
+  check(a10.n >= 2, 'следа: положения преди дупката (' + a10.n + ')');
+  await p10.waitForTimeout(1500); // за да се видят растящите часове на междинните точки (в ms)
+  // (1) Дупка със заспал екран, през първия завой: ~1.2 км по маршрута, ~0.9 км по права.
+  await p10.evaluate(() => { __geo.mute = true; __geo.set('hidden'); });
+  await ctx10.setGeolocation({ latitude: 42.5045, longitude: 24.71 });
+  await p10.evaluate(() => { Follower.RETRY_MS = 60000; __geo.set('visible'); });
+  await p10.evaluate(() => { __geo.mute = false; });
+  await ctx10.setGeolocation({ latitude: 42.5046, longitude: 24.71 });
+  await growTo(p10, a10.n);
+  const b10 = await st10(a10.n - 1);
+  const ins10 = b10.add.slice(1, -1), straight10 = U_hav(42.5, 24.7012, 42.5046, 24.71), along10 = U_hav(42.5, 24.7012, 42.5, 24.71) + U_hav(42.5, 24.71, 42.5046, 24.71);
+  const tUp = pts => pts.every((p, i) => i === 0 || p.t > pts[i - 1].t);
+  check(ins10.length > 5 && ins10.every(p => p.off < 1 && p.acc == null) && near(ins10, 42.5, 24.71), 'заспал екран, двете точки върху трака: ' + ins10.length + ' междинни точки по маршрута, с завоя, без точност');
+  check(Math.abs(b10.len - a10.len - along10) < 10 && b10.len - a10.len > straight10 + 250, 'дължината расте по маршрута: +' + Math.round(b10.len - a10.len) + ' м (по права ' + Math.round(straight10) + ', по трака ' + Math.round(along10) + '), "Изминати" ' + b10.done);
+  check(tUp(b10.add), 'междинните точки имат растящи часове между двете измерени');
+  // Изнесеният .gpx носи междинните точки с часовете им.
+  await p10.click('#walkGpxBtn');
+  await p10.fill('#fileName', 'sleda');
+  const [dl10] = await Promise.all([p10.waitForEvent('download'), p10.press('#fileName', 'Enter')]);
+  const file10 = path.join(OUT, 'walk-sleda.gpx');
+  await dl10.saveAs(file10);
+  const x10 = fs.readFileSync(file10, 'utf8');
+  const gp10 = Array.from(x10.matchAll(/<trkpt lat="([\d.-]+)" lon="([\d.-]+)">[\s\S]*?<time>([^<]+)<\/time>/g)).map(m => ({ lat: +m[1], lon: +m[2], t: Date.parse(m[3]) }));
+  const gIns = gp10.slice(a10.n, a10.n + ins10.length);
+  check(gp10.length === b10.n && near(gIns, 42.5, 24.71) && tUp(gp10.slice(a10.n - 1, a10.n + ins10.length + 1)), 'изнесеният .gpx: ' + gp10.length + ' точки, междинните по завоя с растящи часове');
+  // (2) Дупка при буден екран (без смяна на видимостта), през втория завой.
+  await p10.waitForTimeout(1500);
+  await ctx10.setGeolocation({ latitude: 42.51, longitude: 24.7135 });
+  await growTo(p10, b10.n);
+  const c10 = await st10(b10.n - 1);
+  const ins10c = c10.add.slice(1, -1), along10c = U_hav(42.5046, 24.71, 42.51, 24.71) + U_hav(42.51, 24.71, 42.51, 24.7135);
+  check(c10.calls === b10.calls && ins10c.length > 5 && ins10c.every(p => p.off < 1 && p.acc == null) && near(ins10c, 42.51, 24.71) && tUp(c10.add), 'дупка при буден екран: ' + ins10c.length + ' междинни точки по маршрута, с завоя, растящи часове');
+  check(Math.abs(c10.len - b10.len - along10c) < 10, 'буден екран: дължината расте по маршрута с ' + Math.round(c10.len - b10.len) + ' м (по трака ' + Math.round(along10c) + ')');
+  // (3) Точка на 50 м встрани от маршрута - права линия, и към нея, и обратно към трака.
+  await ctx10.setGeolocation({ latitude: 42.51045, longitude: 24.7145 });
+  await growTo(p10, c10.n);
+  const d10 = await st10(c10.n);
+  await ctx10.setGeolocation({ latitude: 42.51, longitude: 24.7175 });
+  await growTo(p10, d10.n);
+  const e10 = await st10(d10.n);
+  check(d10.n === c10.n + 1 && Math.abs(d10.len - c10.len - U_hav(42.51, 24.7135, 42.51045, 24.7145)) < 2 && d10.add[0].off > 45, 'точка на ' + Math.round(d10.add[0].off) + ' м встрани: права линия, без междинни точки');
+  check(e10.n === d10.n + 1 && Math.abs(e10.len - d10.len - U_hav(42.51045, 24.7145, 42.51, 24.7175)) < 2, 'от точката встрани обратно на трака: пак права линия');
+  await p10.click('#followBar [data-act="follow-stop"]');
+  // (4) Затворен кръг: новото положение е 240 м назад по маршрута, а следата върви напред - почти цялата обиколка.
+  const sq = line(42.52, 24.70, 42.52, 24.71, 30).concat(line(42.52, 24.71, 42.53, 24.71, 30).slice(1), line(42.53, 24.71, 42.53, 24.70, 30).slice(1), line(42.53, 24.70, 42.52, 24.70, 30).slice(1));
+  const nt10 = await p10.evaluate(() => __gpxk.S.tracks.length);
+  await p10.setInputFiles('#fileInput', writeGpx('krag', sq));
+  await p10.waitForFunction(n => __gpxk.S.tracks.length > n, nt10);
+  await useTrack(p10);
+  await p10.click('#bar [data-act="follow"]');
+  await growTo(p10, 0);
+  await ctx10.setGeolocation({ latitude: 42.52, longitude: 24.7041 });
+  await p10.waitForFunction(() => { const r = __gpxk.ui.follower.rec, p = r[r.length - 1]; return Math.abs(p[1] - 24.7041) < 1e-6; }, null, { timeout: 10000 });
+  const f10 = await st10(0);
+  await p10.waitForTimeout(1500);
+  await ctx10.setGeolocation({ latitude: 42.52, longitude: 24.7012 });
+  await growTo(p10, f10.n);
+  const g10 = await st10(f10.n - 1), loopLen = await p10.evaluate(() => __gpxk.G.len), back10 = U_hav(42.52, 24.7041, 42.52, 24.7012);
+  const ins10g = g10.add.slice(1, -1);
+  check(near(ins10g, 42.52, 24.71) && near(ins10g, 42.53, 24.71) && near(ins10g, 42.53, 24.70) && ins10g.every(p => p.off < 1) && tUp(g10.add), 'затворен кръг: следата върви напред през трите завоя (' + ins10g.length + ' междинни точки), не назад');
+  check(Math.abs(g10.len - f10.len - (loopLen - back10)) < 10, 'затворен кръг: изминати +' + Math.round(g10.len - f10.len) + ' м = обиколката ' + Math.round(loopLen) + ' без ' + Math.round(back10) + ' м назад');
+  await p10.click('#followBar [data-act="follow-stop"]');
+  const h10 = await p10.evaluate(() => { const S = __gpxk.S, t = S.tracks[S.tracks.length - 1], w = S.routes.find(r => r.items && r.items.length === 1 && r.items[0].trackId === t.id); return { walk: t.walk, n: t.pts.length, len: t.len, rec: !!w }; });
+  check(h10.walk && h10.n === g10.n && Math.abs(h10.len - g10.len) < 1 && h10.rec, 'след "Стоп" изминатият трак и записът в "Записани маршрути" носят следата (' + h10.n + ' точки, ' + Math.round(h10.len) + ' м)');
+  await ctx10.close();
 
   check(errors.length === 0, 'конзолата е чиста' + (errors.length ? ': ' + errors.join(' | ') : ''));
   await browser.close();

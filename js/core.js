@@ -506,6 +506,44 @@
       lat: p[0] + best.t * (q[0] - p[0]), lon: p[1] + best.t * (q[1] - p[1])
     };
   }
+  /* Първото място по линията на разстояние до lim метра от точката, търсено от d0 нататък
+     (dir 1 - напред, -1 - назад). При loop търсенето минава през края и продължава от началото.
+     Връща най-близкото място в първия такъв отрязък, не най-близкото по цялата линия - така
+     връщане по същия път или кръг не прескачат на другия отрязък. */
+  function alongOn(pts, cum, d0, lat, lon, lim, dir, loop) {
+    var n = pts.length - 1;
+    if (n < 1) return null;
+    var kx = Math.cos(lat * U.RAD) * MPD, ky = MPD;
+    var px = lon * kx, py = lat * ky, lim2 = lim * lim;
+    var s0 = 0;
+    while (s0 < n - 1 && cum[s0 + 1] <= d0) s0++;
+    var steps = loop ? n : (dir > 0 ? n - 1 - s0 : s0), best = null;
+    for (var k = 0; k <= steps; k++) {
+      var i = s0 + dir * k;
+      if (i >= n) i -= n; else if (i < 0) i += n;
+      var p = pts[i], q = pts[i + 1], L = cum[i + 1] - cum[i];
+      var r = U.projectSeg(px, py, p[1] * kx, p[0] * ky, q[1] * kx, q[0] * ky);
+      var t = r.t, d2 = r.d2;
+      // В отрязъка на d0: само частта в посоката на търсене (при loop, след обиколката - другата).
+      if (k === 0 || (loop && k === n)) {
+        var t0 = L ? (d0 - cum[i]) / L : 0, ahead = (dir > 0) === (k === 0);
+        if (ahead ? t < t0 : t > t0) {
+          t = t0;
+          var x = (p[1] + t * (q[1] - p[1])) * kx - px, y = (p[0] + t * (q[0] - p[0])) * ky - py;
+          d2 = x * x + y * y;
+        }
+      }
+      if (d2 <= lim2) { if (!best || d2 < best.d2) best = { d2: d2, i: i, t: t }; }
+      else if (best) break;
+    }
+    if (!best) return null;
+    var a = pts[best.i], b = pts[best.i + 1];
+    return {
+      d: cum[best.i] + best.t * (cum[best.i + 1] - cum[best.i]),
+      dist: Math.sqrt(best.d2), i: best.i,
+      lat: a[0] + best.t * (b[0] - a[0]), lon: a[1] + best.t * (b[1] - a[1])
+    };
+  }
   function nearestOnTrack(t, lat, lon) { prep(t); return nearestOn(t.pts, t._cum, lat, lon); }
 
   // Каква част от [a,b] на трака е под дубликат или изрязване.
@@ -794,7 +832,7 @@
   }
 
   window.Core = {
-    prep: prep, analyze: analyze, slice: slice, pointAt: pointAt, nearestOn: nearestOn,
+    prep: prep, analyze: analyze, slice: slice, pointAt: pointAt, nearestOn: nearestOn, alongOn: alongOn,
     nearestOnTrack: nearestOnTrack, invalidShare: invalidShare, routeGeometry: routeGeometry,
     trackBounds: trackBounds, overlap: overlap, ROUTE_GAP: ROUTE_GAP, LINK_MIN: LINK_MIN, DUP_BRIDGE: DUP_BRIDGE,
     routeForks: routeForks, switchFork: switchFork, branchProbe: branchProbe,

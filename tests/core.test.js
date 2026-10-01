@@ -392,3 +392,17 @@ coCheck('отклонение 80 м', coTracks(bumpOf(1900, 80, 30)), 12, 1);
 coCheck('отклонение 300 м', coTracks(bumpOf(1800, 300, 40)), 20, 2);
 coCheck('отклонение 300 м', coTracks(bumpOf(1800, 300, 40)), 12, 2);
 console.log('общ участък OK');
+// Място по линията напред от d0: първият отрязък до lim м, при кръг - през края към началото.
+(function () {
+  var sq = line(42.52, 24.70, 42.52, 24.71, 10).concat(line(42.52, 24.71, 42.53, 24.71, 10).slice(1), line(42.53, 24.71, 42.53, 24.70, 10).slice(1), line(42.53, 24.70, 42.52, 24.70, 10).slice(1));
+  var t = { id: 'K', pts: sq }; Core.prep(t);
+  var a = Core.nearestOn(t.pts, t._cum, 42.52, 24.7041);
+  var f = Core.alongOn(t.pts, t._cum, a.d, 42.52, 24.7012, 20, 1, true);
+  assert.ok(f && f.d < a.d && f.dist < 1, 'кръг: напред минава през края и намира точката зад d0');
+  assert.strictEqual(Core.alongOn(t.pts, t._cum, a.d, 42.52, 24.7012, 20, 1, false), null, 'отворена линия: напред няма такова място');
+  var b = Core.alongOn(t.pts, t._cum, a.d, 42.52, 24.7012, 20, -1, false);
+  assert.ok(b && b.d < a.d && Math.abs(a.d - b.d - 238) < 5, 'назад: 238 м по линията');
+  var j = Core.alongOn(t.pts, t._cum, a.d, 42.52001, 24.70405, 20, 1, true);
+  assert.ok(j && Math.abs(j.d - a.d) < 0.01, 'малко назад по кръга (под lim): остава на d0, без обиколка');
+  console.log('alongOn: OK');
+})();

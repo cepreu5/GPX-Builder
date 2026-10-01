@@ -1710,6 +1710,8 @@
       },
       // Връщане на екрана без положение: същото следене, панелът чака новия сигнал.
       waiting: function () { renderFollow(); },
+      // Следеният маршрут - по него минава следата през дупка в GPS.
+      route: function () { return G; },
       awake: showAwake
     });
     f.awakeOn = ui.awake;

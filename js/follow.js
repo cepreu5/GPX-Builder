@@ -5,6 +5,7 @@
 
   var U = window.U, Core = window.Core;
   var OFF_LIMIT = 30; // над толкова метра встрани - предупреждение
+  var ON_LIMIT = 20;  // до толкова метра от линията точката е "върху трака" (за следата през дупка)
   var RETRY_MS = 8000; // след връщане на екрана: още един опит, ако дотогава няма положение
 
   function Follower(cb) {
@@ -13,6 +14,7 @@
     this.rec = [];
     this.t0 = 0;
     this.lastD = null;
+    this.lastOn = null;  // мястото по маршрута на последната записана точка, ако е върху трака
     this.wake = null;
     this.gen = 0;        // всяко пускане на GPS - ново поколение; старите отговори се пренебрегват
     this.fixAt = 0;      // кога е дошло последното положение
@@ -37,6 +39,7 @@
       this.rec = [];
       this.t0 = Date.now();
       this.lastD = null;
+      this.lastOn = null;
       try {
         this.listen();
       } catch (e) {
@@ -61,9 +64,13 @@
         self.waiting = false;
         clearTimeout(self.retry);
         // Записваме само при движение над 5 м или точност, която има смисъл.
-        // След пауза новата точка просто се свързва с последната - права линия, която влиза в дължината.
+        // Ако и последната точка, и новата са върху трака, между тях влизат завоите на маршрута
+        // (след заспал екран, тунел, изгубен сигнал); иначе остава права линия.
         var last = self.rec[self.rec.length - 1];
-        if (!last || U.hav(last[0], last[1], p[0], p[1]) > Math.max(5, Math.min(c.accuracy || 0, 25) / 2)) self.rec.push(p);
+        if (!last || U.hav(last[0], last[1], p[0], p[1]) > Math.max(5, Math.min(c.accuracy || 0, 25) / 2)) {
+          self.bridge(last, p).forEach(function (q) { self.rec.push(q); });
+          self.rec.push(p);
+        }
         self.cb.position({ lat: c.latitude, lon: c.longitude, acc: c.accuracy, heading: c.heading, speed: c.speed, t: pos.timestamp });
       }, function (err) {
         if (gen !== self.gen) return;
@@ -146,6 +153,52 @@
     },
     elapsed: function () { return Date.now() - this.t0; },
 
+    /* Следата между последната записана точка и новата: точките на маршрута помежду им, ако и двете
+       са до ON_LIMIT м от линията му. Напред по посоката на маршрута (при затворен кръг - през края
+       му към началото), назад само по отворен маршрут. Час - разпределен по разстояние между часовете
+       на двете точки; височина - по права между двете, ако ги има; точност - празна. */
+    bridge: function (last, p) {
+      var geo = this.cb.route ? this.cb.route() : null;
+      var pts = geo && geo.pts, cum = geo && geo.cum;
+      if (!pts || pts.length < 2) { this.lastOn = null; return []; }
+      var n = pts.length - 1, len = cum[n];
+      var loop = U.hav(pts[0][0], pts[0][1], pts[n][0], pts[n][1]) <= ON_LIMIT;
+      var a = last && this.lastOn && this.lastOn.geo === geo ? this.lastOn : null, b = null, dir = 1;
+      if (last && !a) {
+        var na = Core.nearestOn(pts, cum, last[0], last[1]);
+        if (na && na.dist <= ON_LIMIT) a = { d: na.d };
+      }
+      if (a) {
+        b = Core.alongOn(pts, cum, a.d, p[0], p[1], ON_LIMIT, 1, loop);
+        if (!b && !loop) { b = Core.alongOn(pts, cum, a.d, p[0], p[1], ON_LIMIT, -1, false); dir = -1; }
+      } else {
+        b = Core.nearestOn(pts, cum, p[0], p[1]);
+        if (b && b.dist > ON_LIMIT) b = null;
+      }
+      this.lastOn = b ? { geo: geo, d: b.d } : null;
+      if (!a || !b) return [];
+      var idx = [], i;
+      if (dir < 0) { for (i = n; i >= 0; i--) if (cum[i] < a.d && cum[i] > b.d) idx.push(i); }
+      else if (b.d >= a.d) { for (i = 0; i <= n; i++) if (cum[i] > a.d && cum[i] < b.d) idx.push(i); }
+      else {
+        // Кръгът минава през края си: до края, после от началото (началото е същото място като края).
+        for (i = 0; i <= n; i++) if (cum[i] > a.d && cum[i] <= len) idx.push(i);
+        var same = U.hav(pts[0][0], pts[0][1], pts[n][0], pts[n][1]) < 1;
+        for (i = same ? 1 : 0; i <= n; i++) if (cum[i] < b.d) idx.push(i);
+      }
+      if (!idx.length) return [];
+      var way = [last].concat(idx.map(function (j) { return pts[j]; }), [p]), s = [0];
+      for (i = 1; i < way.length; i++) s.push(s[i - 1] + U.hav(way[i - 1][0], way[i - 1][1], way[i][0], way[i][1]));
+      var S = s[s.length - 1] || 1, out = [];
+      for (i = 1; i < way.length - 1; i++) {
+        var f = s[i] / S;
+        out.push([Math.round(way[i][0] * 1e6) / 1e6, Math.round(way[i][1] * 1e6) / 1e6,
+          last[2] != null && p[2] != null ? Math.round(last[2] + f * (p[2] - last[2])) : null,
+          Math.round(last[3] + f * (p[3] - last[3])), null]);
+      }
+      return out;
+    },
+
     // Мястото по маршрута: предпочита близо до предишното, за да не скача при връщане по същия път.
     progress: function (geo, lat, lon) {
       if (!geo || geo.pts.length < 2) return null;
@@ -169,5 +222,6 @@
 
   window.Follower = Follower;
   window.Follower.OFF_LIMIT = OFF_LIMIT;
+  window.Follower.ON_LIMIT = ON_LIMIT;
   window.Follower.RETRY_MS = RETRY_MS;
 })();
