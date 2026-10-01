@@ -55,6 +55,10 @@
       <button data-view="map" class="on">Карта</button>
       <button data-view="pic">Картина</button>
     </div>
+    <div class="seg" role="group" aria-label="Ориентация на картата при следене">
+      <button data-orient="heading" class="on" title="Посоката на движение сочи нагоре">Посока</button>
+      <button data-orient="north" title="Север сочи нагоре">Север</button>
+    </div>
     <button class="btn" data-act="center">Центрирай</button>
     <button class="btn" data-act="walk-gpx" id="walkGpxBtn" aria-disabled="true" title="Свали изминатото дотук като .gpx - следенето продължава"><span class="walk-w">Изнеси </span>.gpx</button>
     <button class="btn danger" data-act="follow-stop">Стоп</button>
@@ -71,6 +75,7 @@
     </div>
     <label class="chk" id="labelsChk"><input type="checkbox" id="labelsToggle" checked> Имена</label>
     <label class="chk" id="vtxChk" title="Кръгчетата и номерата на чертаните точки"><input type="checkbox" id="vtxToggle" checked> Точки</label>
+    <button id="northBtn" class="compass" type="button" data-act="north" title="Върни север нагоре" aria-label="Север - върни север нагоре" hidden><span class="rose" aria-hidden="true"><i class="needle"></i><b class="n">С</b></span>Север</button>
   </div>
   <div class="mapctl br">
     <button class="btn ico" data-act="zoom-in" aria-label="Приближи">+</button>
@@ -78,6 +83,11 @@
     <button class="btn ico" data-act="fit" title="Покажи целия маршрут" aria-label="Покажи целия маршрут">&#9635;</button>
   </div>
   <div id="attrib" class="attrib"></div>
+  <div id="walkBar" class="walkbar" role="region" aria-label="Изминатото" hidden>
+    <span class="wb-t">Следенето спря: <b id="walkBarName">изминат</b></span>
+    <button class="btn sm pri" data-act="walk-gpx-done" id="walkBarBtn">Свали изминалото като .gpx</button>
+    <button class="btn sm ico" data-act="walkbar-close" aria-label="Затвори реда за сваляне" title="Затвори">&times;</button>
+  </div>
   <div id="cutBox" class="cutbox" hidden>
     <b id="cutText">Изрязване: цъкни началото по линията на трака</b>
     <span id="cutSub" class="muted"></span>
@@ -113,6 +123,7 @@
 
 <main id="panel" class="panel">
   <section id="followPanel" class="card follow-panel" hidden>
+    <button class="btn sm ico follow-x" data-act="walk-forget" id="walkForget" aria-label="Махни панела „Следене“" title="Махни панела и изминатото за сваляне" hidden>&times;</button>
     <div class="follow-stats">
       <div><small>Изминати</small><b class="num" id="fDone">0</b></div>
       <div><small>Време</small><b class="num" id="fTime">0:00 ч</b></div>

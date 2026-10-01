@@ -37,7 +37,7 @@
           // Записваме само при движение над 5 м или точност, която има смисъл.
           var last = self.rec[self.rec.length - 1];
           if (!last || U.hav(last[0], last[1], p[0], p[1]) > Math.max(5, Math.min(c.accuracy || 0, 25) / 2)) self.rec.push(p);
-          self.cb.position({ lat: c.latitude, lon: c.longitude, acc: c.accuracy, heading: c.heading, t: pos.timestamp });
+          self.cb.position({ lat: c.latitude, lon: c.longitude, acc: c.accuracy, heading: c.heading, speed: c.speed, t: pos.timestamp });
         }, function (err) {
           var msg = err.code === 1
             ? 'Нямаш разрешение за местоположение. Разреши го от настройките на браузъра за този сайт и натисни "Следене" пак.'

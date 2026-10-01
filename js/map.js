@@ -1,11 +1,15 @@
 /* GPX конструктор - собствена карта: плочки в Web Mercator, местене, приближаване,
-   приближаване с два пръста, чертане върху платно. Без външни библиотеки. */
+   приближаване с два пръста, завъртане, чертане върху платно. Без външни библиотеки.
+   Завъртането (bearing - посоката, която сочи нагоре) е вътре в проекцията: всичко,
+   което минава през project/projector/unproject, е в екранни координати на завъртяната
+   карта, затова хващането на точки и надписите остават изправени и точни. */
 (function () {
   'use strict';
 
   var TILE = 256;
   var MIN_Z = 2, MAX_Z = 19;
   var CACHE_MAX = 600;
+  var ROT_STEP = 15;
 
   function lon2x(lon) { return (lon + 180) / 360; }
   function lat2y(lat) {
@@ -32,6 +36,8 @@
     this.cx = lon2x(24.7036);
     this.cy = lat2y(42.5006);
     this.zoom = 13;
+    this.rot = 0;    // текущото завъртане в градуси (посоката, която сочи нагоре)
+    this.rotTo = 0;  // към него се върти плавно, до ROT_STEP на кадър
     this.layers = [];
     this.cache = new Map();
     this.drawers = [];
@@ -72,18 +78,42 @@
 
     // Размер на света в пиксели при текущото приближаване.
     scale: function () { return TILE * Math.pow(2, this.zoom); },
+    // Ъгълът на екрана спрямо света: посоката rot сочи нагоре, значи светът е завъртян на -rot.
+    _cs: function () { var a = -this.rot * Math.PI / 180; return [Math.cos(a), Math.sin(a)]; },
+    // Отместване в екранни пиксели (от центъра) -> отместване в пиксели на света.
+    _toWorld: function (dx, dy) { var k = this._cs(); return [dx * k[0] + dy * k[1], -dx * k[1] + dy * k[0]]; },
     project: function (lat, lon) {
-      var s = this.scale();
-      return { x: (lon2x(lon) - this.cx) * s + this.w / 2, y: (lat2y(lat) - this.cy) * s + this.h / 2 };
+      var q = this.projector()(lat, lon);
+      return { x: q[0], y: q[1] };
     },
     unproject: function (x, y) {
-      var s = this.scale();
-      return { lat: y2lat(this.cy + (y - this.h / 2) / s), lon: x2lon(this.cx + (x - this.w / 2) / s) };
+      var s = this.scale(), d = this._toWorld(x - this.w / 2, y - this.h / 2);
+      return { lat: y2lat(this.cy + d[1] / s), lon: x2lon(this.cx + d[0] / s) };
     },
     // Бърза проекция за много точки: връща функция.
     projector: function () {
       var s = this.scale(), cx = this.cx, cy = this.cy, hw = this.w / 2, hh = this.h / 2;
-      return function (lat, lon) { return [(lon2x(lon) - cx) * s + hw, (lat2y(lat) - cy) * s + hh]; };
+      if (!this.rot) return function (lat, lon) { return [(lon2x(lon) - cx) * s + hw, (lat2y(lat) - cy) * s + hh]; };
+      var k = this._cs(), c = k[0], n = k[1];
+      return function (lat, lon) {
+        var dx = (lon2x(lon) - cx) * s, dy = (lat2y(lat) - cy) * s;
+        return [dx * c - dy * n + hw, dx * n + dy * c + hh];
+      };
+    },
+    // Завъртане: deg е посоката (0 = север), която да сочи нагоре; now - без плавно въртене.
+    setBearing: function (deg, now) {
+      this.rotTo = norm(deg);
+      if (now) { this.rot = this.rotTo; this.emit('rotate', this.rot); }
+      this.redraw();
+    },
+    getBearing: function () { return this.rot; },
+    // Ъглите на екрана в географски координати - обхватът на видимото и при завъртяна карта.
+    viewBounds: function (top) {
+      var self = this, t = top || 0, c = [[0, t], [this.w, t], [0, this.h], [this.w, this.h]].map(function (q) { return self.unproject(q[0], q[1]); });
+      return {
+        n: Math.max.apply(null, c.map(function (g) { return g.lat; })), s: Math.min.apply(null, c.map(function (g) { return g.lat; })),
+        w: Math.min.apply(null, c.map(function (g) { return g.lon; })), e: Math.max.apply(null, c.map(function (g) { return g.lon; }))
+      };
     },
     getView: function () {
       return { lat: y2lat(this.cy), lon: x2lon(this.cx), zoom: this.zoom };
@@ -106,9 +136,9 @@
       var dx = Math.max(x1 - x0, 1e-9), dy = Math.max(y1 - y0, 1e-9);
       var z = Math.log(Math.min(aw / (dx * TILE), ah / (dy * TILE))) / Math.LN2;
       this.zoom = clampZ(Math.min(z, 17));
-      var s = this.scale();
-      this.cx = (x0 + x1) / 2 + ((pr - pl) / 2) / s;
-      this.cy = (y0 + y1) / 2 + ((pb - pt) / 2) / s;
+      var s = this.scale(), o = this._toWorld((pr - pl) / 2, (pb - pt) / 2);
+      this.cx = (x0 + x1) / 2 + o[0] / s;
+      this.cy = (y0 + y1) / 2 + o[1] / s;
       this._changed();
     },
     zoomAround: function (nz, x, y) {
@@ -116,14 +146,14 @@
       if (x == null) { x = this.w / 2; y = this.h / 2; }
       var before = this.unproject(x, y);
       this.zoom = nz;
-      var s = this.scale();
-      this.cx = lon2x(before.lon) - (x - this.w / 2) / s;
-      this.cy = lat2y(before.lat) - (y - this.h / 2) / s;
+      var s = this.scale(), o = this._toWorld(x - this.w / 2, y - this.h / 2);
+      this.cx = lon2x(before.lon) - o[0] / s;
+      this.cy = lat2y(before.lat) - o[1] / s;
       this._changed();
     },
     panBy: function (dx, dy) {
-      var s = this.scale();
-      this.cx -= dx / s; this.cy -= dy / s;
+      var s = this.scale(), o = this._toWorld(dx, dy);
+      this.cx -= o[0] / s; this.cy -= o[1] / s;
       this.cy = Math.max(0, Math.min(1, this.cy));
       this._changed();
     },
@@ -172,14 +202,17 @@
       var ts = TILE * Math.pow(2, this.zoom - tz); // размер на плочката на екрана
       var ox = this.cx * n * ts - this.w / 2; // светови пиксели на левия ръб
       var oy = this.cy * n * ts - this.h / 2;
-      var x0 = Math.floor(ox / ts), y0 = Math.floor(oy / ts);
-      var x1 = Math.floor((ox + this.w) / ts), y1 = Math.floor((oy + this.h) / ts);
+      // При завъртане се теглят плочките в квадрата около завъртения екран, за да няма празни ъгли.
+      var R = this.rot ? Math.hypot(this.w, this.h) / 2 : 0;
+      var ex = R ? R - this.w / 2 : 0, ey = R ? R - this.h / 2 : 0, ov = R ? 0.6 : 0;
+      var x0 = Math.floor((ox - ex) / ts), y0 = Math.floor((oy - ey) / ts);
+      var x1 = Math.floor((ox + this.w + ex) / ts), y1 = Math.floor((oy + this.h + ey) / ts);
       ctx.globalAlpha = layer.opacity == null ? 1 : layer.opacity;
       for (var ty = y0; ty <= y1; ty++) {
         if (ty < 0 || ty >= n) continue;
         for (var tx = x0; tx <= x1; tx++) {
           var sx = Math.round(tx * ts - ox), sy = Math.round(ty * ts - oy);
-          var sw = Math.round((tx + 1) * ts - ox) - sx, sh = Math.round((ty + 1) * ts - oy) - sy;
+          var sw = Math.round((tx + 1) * ts - ox) - sx + ov, sh = Math.round((ty + 1) * ts - oy) - sy + ov;
           var t = this.tile(layer, tz, tx, ty, true);
           if (t && t.ok) { ctx.drawImage(t.img, sx, sy, sw, sh); continue; }
           if (layer.noFallback) continue;
@@ -201,6 +234,12 @@
 
     _loop: function () {
       requestAnimationFrame(this._loop);
+      if (this.rot !== this.rotTo) {
+        var dr = ((this.rotTo - this.rot + 540) % 360) - 180;
+        this.rot = Math.abs(dr) <= ROT_STEP ? this.rotTo : norm(this.rot + (dr > 0 ? ROT_STEP : -ROT_STEP));
+        this.dirty = true;
+        this.emit('rotate', this.rot);
+      }
       if (!this.dirty) return;
       this.dirty = false;
       this._frame = (this._frame || 0) + 1;
@@ -208,9 +247,15 @@
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       ctx.fillStyle = this.opts.background ? this.opts.background() : '#ddd';
       ctx.fillRect(0, 0, this.w, this.h);
+      if (this.rot) {
+        ctx.translate(this.w / 2, this.h / 2);
+        ctx.rotate(-this.rot * Math.PI / 180);
+        ctx.translate(-this.w / 2, -this.h / 2);
+      }
       for (var i = 0; i < this.layers.length; i++) {
         if (this.layers[i].visible !== false) this._drawLayer(ctx, this.layers[i]);
       }
+      ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       for (var j = 0; j < this.drawers.length; j++) {
         ctx.save();
         try { this.drawers[j](ctx, this); } catch (e) { console.error(e); }
@@ -353,6 +398,7 @@
   };
 
   function clampZ(z) { return Math.max(MIN_Z, Math.min(MAX_Z, z)); }
+  function norm(d) { d = ((+d || 0) % 360 + 360) % 360; return d > 359.95 ? 0 : d; }
 
   TileMap.merc = { lon2x: lon2x, lat2y: lat2y, x2lon: x2lon, y2lat: y2lat, TILE: TILE };
   window.TileMap = TileMap;

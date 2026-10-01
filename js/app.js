@@ -31,7 +31,8 @@
     mode: 'select', hover: null, hl: null, cut: null, drawTarget: null, sel: null,
     undo: [], base: U.LS.get('base', 'sat'), labels: U.LS.get('labels', true), vtxShow: U.LS.get('vtxShow', true),
     grade: U.LS.get('grade', true), fold: U.LS.get('fold', {}), follower: null, pos: null, prog: null, followView: 'map',
-    autoCenter: true, pin: null, profHover: null, picUrl: null, picMeta: null
+    autoCenter: true, pin: null, profHover: null, picUrl: null, picMeta: null,
+    orient: U.LS.get('orient', 'heading') === 'north' ? 'north' : 'heading', heading: null, lastWalk: null
   };
   var map;
 
@@ -1551,8 +1552,7 @@
     var base = f.pbase.value, area = f.parea.value;
     var b;
     if (area === 'view') {
-      var tl = map.unproject(0, barPad().top - 20), br = map.unproject(map.w, map.h);
-      b = { n: tl.lat, w: tl.lon, s: br.lat, e: br.lon };
+      b = map.viewBounds(barPad().top - 20);
     } else {
       b = G && G.pts.length > 1 ? U.boundsOf([G.pts]) : U.boundsOf(visibleTracks().map(function (t) { return t.pts; }));
     }
@@ -1690,7 +1690,10 @@
       position: function (pos) {
         ui.pos = pos;
         ui.prog = f.progress(G, pos.lat, pos.lon);
+        var hd = moveHeading(pos, f.rec);
+        if (hd != null) ui.heading = hd;
         if (ui.autoCenter) map.setView(pos.lat, pos.lon, Math.max(map.zoom, 15));
+        followBearing();
         renderFollow();
         $('#walkGpxBtn').setAttribute('aria-disabled', f.rec.length < 2 ? 'true' : 'false');
         map.redraw();
@@ -1707,8 +1710,10 @@
     });
     ui.follower = f;
     ui.followName = cur().name;
-    ui.lastWalk = null;
+    forgetWalk();
     ui.autoCenter = true;
+    ui.heading = null;
+    $('#fDone').textContent = '0'; $('#fTime').textContent = '0:00 ч'; $('#fLeft').textContent = '-'; $('#fOff').textContent = '-';
     document.body.classList.add('following');
     $('#followBar').hidden = false;
     $('#tools').hidden = true;
@@ -1717,6 +1722,7 @@
     $('#fMsg').textContent = 'Чакам сигнал от GPS...'; $('#fMsg').className = 'follow-msg';
     $('#walkDone').hidden = true;
     $('#walkGpxBtn').setAttribute('aria-disabled', 'true');
+    setOrient(ui.orient);
     setMode('select');
     if (!f.start()) { return; }
     ui.followTimer = setInterval(renderFollow, 15000);
@@ -1761,16 +1767,73 @@
       var wr = newRoute(t.name);
       wr.items = [{ type: 'part', trackId: t.id, a: 0, b: rec.length - 1, rev: false }];
       wr.len = t.len;
-      ui.lastWalk = { pts: rec, name: ui.followName, title: t.title };
-      $('#fMsg').textContent = 'Следенето спря. Изминатият път е записан като отделен маршрут "' + wr.name + '".';
-      $('#fMsg').className = 'follow-msg';
-      $('#walkDone').hidden = false;
+      $('#fDone').textContent = U.km(t.len);
+      ui.lastWalk = {
+        pts: rec, name: ui.followName, title: t.title, wname: wr.name, bar: true,
+        msg: 'Следенето спря. Изминатият път е записан като отделен маршрут "' + wr.name + '".',
+        stats: { done: $('#fDone').textContent, time: $('#fTime').textContent, left: $('#fLeft').textContent, off: $('#fOff').textContent }
+      };
+      U.DB.set('lastWalk', ui.lastWalk);
+      showWalk();
       toast('Изминатият път е записан като отделен маршрут "' + wr.name + '" · ' + U.km(t.len), false, 6000);
       analyzeNow();
       saveNow();
     } else if (!silent) toast('Следенето спря. Няма записан път.');
+    // Картата остава в последната посока; копчето "Север" я връща.
     ui.pos = null;
     map.redraw();
+  }
+
+  /* Посоката на движение: от GPS, ако я дава при движение; иначе от последните две
+     записани точки (те са поне на 5 м една от друга). При стоене остава последната. */
+  function moveHeading(pos, rec) {
+    if (pos.heading != null && isFinite(pos.heading) && !(pos.speed != null && pos.speed < 0.5)) return pos.heading;
+    var n = rec.length;
+    if (n < 2) return null;
+    return U.bearing(rec[n - 2][0], rec[n - 2][1], rec[n - 1][0], rec[n - 1][1]);
+  }
+  // При следене в изглед "Карта" посоката сочи нагоре - докато картата не е дръпната встрани.
+  function followBearing() {
+    if (ui.follower && ui.followView === 'map' && ui.autoCenter && ui.orient === 'heading' && ui.heading != null) map.setBearing(ui.heading);
+  }
+  function setOrient(o) {
+    ui.orient = o === 'north' ? 'north' : 'heading';
+    U.LS.set('orient', ui.orient);
+    $$('#followBar [data-orient]').forEach(function (b) { b.classList.toggle('on', b.dataset.orient === ui.orient); });
+    if (ui.orient === 'north') { if (ui.follower) map.setBearing(0); }
+    else if (ui.follower && ui.followView === 'map' && ui.heading != null) map.setBearing(ui.heading);
+  }
+  // Стрелката "С" и копчето "Север" - видими, докато картата е завъртяна.
+  function showCompass(rot) {
+    var b = $('#northBtn');
+    b.hidden = !rot;
+    b.style.setProperty('--rose', (-rot).toFixed(1) + 'deg');
+  }
+  function northUp() {
+    if (ui.follower && ui.orient === 'heading') setOrient('north');
+    else map.setBearing(0);
+  }
+
+  /* Последното изминато: панелът "Следене" и редът върху картата с копчето за сваляне.
+     Пази се в браузъра - остава след презареждане и при отваряне на друг маршрут. */
+  function showWalk() {
+    var w = ui.lastWalk;
+    var bar = !!(w && w.bar && !ui.follower);
+    $('#walkBar').hidden = !bar;
+    document.body.classList.toggle('walkbar-on', bar);
+    $('#walkForget').hidden = !w || !!ui.follower;
+    if (!w || ui.follower) return;
+    $('#walkBarName').textContent = w.wname || w.title || 'изминат';
+    $('#followPanel').hidden = false;
+    $('#followTitle').textContent = 'Следене: ' + w.name;
+    if (w.stats) { $('#fDone').textContent = w.stats.done; $('#fTime').textContent = w.stats.time; $('#fLeft').textContent = w.stats.left; $('#fOff').textContent = w.stats.off; }
+    $('#fMsg').textContent = w.msg || ''; $('#fMsg').className = 'follow-msg';
+    $('#walkDone').hidden = false;
+  }
+  function forgetWalk() {
+    ui.lastWalk = null;
+    U.DB.del('lastWalk');
+    showWalk();
   }
 
   // Изминатото като .gpx: пита за име на файла, после сваля. Следенето не спира.
@@ -1826,7 +1889,7 @@
   // ---- Маршрути ----
   function openRoute(id) {
     if (ui.follower) stopFollow();
-    $('#followPanel').hidden = true;
+    if (!ui.lastWalk) $('#followPanel').hidden = true;
     S.curId = id;
     ui.undo = []; $('#undoBtn').disabled = true;
     ui.drawTarget = null; ui.cut = null; prof = null; lastElevKey = null;
@@ -1923,7 +1986,10 @@
       case 'follow-stop': stopFollow(); break;
       case 'walk-gpx': if (ui.follower) walkGpx(ui.follower.rec, ui.followName, 'изминат ' + U.date(Date.now())); break;
       case 'walk-gpx-done': if (ui.lastWalk) walkGpx(ui.lastWalk.pts, ui.lastWalk.name, ui.lastWalk.title); break;
-      case 'center': ui.autoCenter = true; if (ui.pos) map.setView(ui.pos.lat, ui.pos.lon, Math.max(map.zoom, 15)); break;
+      case 'center': ui.autoCenter = true; if (ui.pos) map.setView(ui.pos.lat, ui.pos.lon, Math.max(map.zoom, 15)); followBearing(); break;
+      case 'north': northUp(); break;
+      case 'walkbar-close': if (ui.lastWalk) { ui.lastWalk.bar = false; U.DB.set('lastWalk', ui.lastWalk); } showWalk(); break;
+      case 'walk-forget': forgetWalk(); $('#followPanel').hidden = true; break;
       case 'to-panel': $('#panel').scrollIntoView({ behavior: 'smooth' }); break;
       case 'undo': undo(); break;
       case 'clear-tracks': clearTracks(); break;
@@ -1986,7 +2052,8 @@
     });
     $('#dlgName').addEventListener('close', function () { ui.nameJob = null; });
     $('#nameCancel').addEventListener('click', function () { $('#dlgName').close(); });
-    $$('#followBar [data-view]').forEach(function (b) { b.addEventListener('click', function () { showPic(b.dataset.view === 'pic'); }); });
+    $$('#followBar [data-view]').forEach(function (b) { b.addEventListener('click', function () { showPic(b.dataset.view === 'pic'); followBearing(); }); });
+    $$('#followBar [data-orient]').forEach(function (b) { b.addEventListener('click', function () { setOrient(b.dataset.orient); }); });
 
     $('#routeName').addEventListener('input', function (e) {
       cur().name = e.target.value.trim() || 'Маршрут';
@@ -2151,6 +2218,11 @@
     map.addDrawer(drawMap);
     map.on('viewchange', function (v) { U.LS.set('view', v); if (!$('#pointMenu').hidden) hidePointMenu(); });
     map.on('usermove', function () { if (ui.follower) ui.autoCenter = false; $('#tip').hidden = true; });
+    map.on('rotate', showCompass);
+    // Височината на горната лента - при следене контролите горе вдясно стоят под нея.
+    var barEl = $('#bar'), barH = function () { document.documentElement.style.setProperty('--bar-h', Math.round(barEl.getBoundingClientRect().height) + 'px'); };
+    if (window.ResizeObserver) new ResizeObserver(barH).observe(barEl); else window.addEventListener('resize', barH);
+    barH();
     var tileErrs = 0, warned = false;
     map.on('tileerror', function () {
       tileErrs++;
@@ -2181,6 +2253,10 @@
       analyzeNow();
       loadPic();
       if (!view && S.tracks.length) fitRoute();
+      return U.DB.get('lastWalk').then(function (w) {
+        if (w && w.pts && w.pts.length >= 2 && !ui.follower) { ui.lastWalk = w; showWalk(); }
+      }).catch(function () { /* без последно изминато */ });
+    }).then(function () {
       window.__gpxk = { S: S, get A() { return A; }, get G() { return G; }, get prof() { return prof; }, map: map, ui: ui, handleFiles: handleFiles, refresh: function () { routeChanged(); }, flattenAutoGaps: flattenAutoGaps, ready: true };
     });
 
