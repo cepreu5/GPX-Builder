@@ -32,7 +32,8 @@
     undo: [], base: U.LS.get('base', 'sat'), labels: U.LS.get('labels', true), vtxShow: U.LS.get('vtxShow', true),
     grade: U.LS.get('grade', true), fold: U.LS.get('fold', {}), follower: null, pos: null, prog: null, followView: 'map',
     autoCenter: true, pin: null, profHover: null, picUrl: null, picMeta: null,
-    orient: U.LS.get('orient', 'heading') === 'north' ? 'north' : 'heading', heading: null, lastWalk: null
+    orient: U.LS.get('orient', 'heading') === 'north' ? 'north' : 'heading', heading: null, lastWalk: null,
+    awake: U.LS.get('awake', true) !== false
   };
   var map;
 
@@ -1706,8 +1707,12 @@
         if (ui.pos && code !== 1) return;
         toast(msg, true, 8000);
         stopFollow(true);
-      }
+      },
+      // Връщане на екрана без положение: същото следене, панелът чака новия сигнал.
+      waiting: function () { renderFollow(); },
+      awake: showAwake
     });
+    f.awakeOn = ui.awake;
     ui.follower = f;
     ui.followName = cur().name;
     forgetWalk();
@@ -1723,6 +1728,7 @@
     $('#walkDone').hidden = true;
     $('#walkGpxBtn').setAttribute('aria-disabled', 'true');
     setOrient(ui.orient);
+    setAwake(ui.awake);
     setMode('select');
     if (!f.start()) { return; }
     ui.followTimer = setInterval(renderFollow, 15000);
@@ -1731,6 +1737,7 @@
   function renderFollow() {
     if (!ui.follower) return;
     $('#fTime').textContent = U.duration(ui.follower.elapsed());
+    if (ui.follower.waiting) { $('#fMsg').textContent = 'Чакам сигнал от GPS...'; $('#fMsg').className = 'follow-msg'; return; }
     var p = ui.prog;
     if (!p) {
       if (ui.pos) { $('#fDone').textContent = U.km(U.lengthOf(ui.follower.rec)); $('#fLeft').textContent = '-'; }
@@ -1759,6 +1766,7 @@
     document.body.classList.remove('following');
     $('#followBar').hidden = true;
     $('#tools').hidden = false;
+    $('#fAwake').hidden = true;
     $('#followPanel').hidden = !silent && rec.length < 2;
     showPic(false);
     if (rec.length >= 2) {
@@ -1770,6 +1778,27 @@
     // Картата остава в последната посока; копчето "Север" я връща.
     ui.pos = null;
     map.redraw();
+  }
+
+  /* Режим "Екранът да не заспива" при следене: копчето в реда на следенето, изборът се помни.
+     Панелът казва с текст дали екранът се държи буден - и когато браузърът не може или откаже. */
+  var AWAKE_MSG = {
+    on: 'Екранът няма да заспива, докато следиш.',
+    off: 'Екранът може да заспи - следенето продължава при събуждане.',
+    none: 'Този браузър не може да държи екрана буден. Екранът може да заспи - следенето продължава при събуждане.',
+    denied: 'Браузърът не позволи екранът да стои буден (например при пестене на батерия). Екранът може да заспи - следенето продължава при събуждане.'
+  };
+  function setAwake(on) {
+    ui.awake = !!on;
+    U.LS.set('awake', ui.awake);
+    $('#awakeBtn').setAttribute('aria-pressed', ui.awake ? 'true' : 'false');
+    if (ui.follower) ui.follower.setAwake(ui.awake);
+  }
+  function showAwake(state) {
+    var el = $('#fAwake');
+    el.textContent = AWAKE_MSG[state] || '';
+    el.className = 'follow-msg' + (state === 'none' || state === 'denied' ? ' warn' : ' muted');
+    el.hidden = !ui.follower || !el.textContent;
   }
 
   /* Изминатото като нормален трак: нов трак "изминат <дата>" в изминатите на следения
@@ -2046,6 +2075,7 @@
       case 'save': cur().modified = Date.now(); saveNow().then(function () { renderRoutes(); toast('Записано: ' + cur().name); }); break;
       case 'follow': startFollow(); break;
       case 'follow-stop': stopFollow(); break;
+      case 'awake': setAwake(!ui.awake); break;
       case 'walk-gpx': if (ui.follower) walkGpx(ui.follower.rec, ui.followName, 'изминат ' + U.date(Date.now())); break;
       case 'walk-gpx-done': if (ui.lastWalk) walkGpx(ui.lastWalk.pts, ui.lastWalk.name, ui.lastWalk.title); break;
       case 'center': ui.autoCenter = true; if (ui.pos) map.setView(ui.pos.lat, ui.pos.lon, Math.max(map.zoom, 15)); followBearing(); break;

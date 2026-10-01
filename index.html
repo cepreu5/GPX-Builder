@@ -60,6 +60,7 @@
       <button data-orient="north" title="Север сочи нагоре">Север</button>
     </div>
     <button class="btn" data-act="center">Центрирай</button>
+    <button class="btn awake-btn" data-act="awake" id="awakeBtn" aria-pressed="true" title="Екранът да не заспива, докато следиш"><span class="walk-w">Екранът </span>буден</button>
     <button class="btn" data-act="walk-gpx" id="walkGpxBtn" aria-disabled="true" title="Свали изминатото дотук като .gpx - следенето продължава"><span class="walk-w">Изнеси </span>.gpx</button>
     <button class="btn danger" data-act="follow-stop">Стоп</button>
   </div>
@@ -131,6 +132,7 @@
       <div><small>Встрани</small><b class="num" id="fOff">-</b></div>
     </div>
     <p id="fMsg" class="follow-msg">Чакам сигнал от GPS...</p>
+    <p id="fAwake" class="follow-msg muted" hidden></p>
     <div id="walkDone" class="row follow-done" hidden>
       <button class="btn pri" data-act="walk-gpx-done">Свали изминатото като .gpx</button>
       <span class="muted small">записът се отваря от "Записани маршрути" и се редактира като всеки друг</span>

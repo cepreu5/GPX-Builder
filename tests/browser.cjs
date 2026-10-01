@@ -798,9 +798,9 @@ function barFits() {
   // Версия: в дъното и в името на кеша от sw.js.
   const verText = (await p5.textContent('#appVersion')).trim();
   const ver = (verText.match(/^\d+\.\d+\.\d+/) || [''])[0];
-  check(ver === '1.0.3' && await p5.isVisible('#appVersion') && /^Версия 1\.0\.3 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
+  check(ver === '1.0.4' && await p5.isVisible('#appVersion') && /^Версия 1\.0\.4 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
   const swCache = (() => { const ctx = { importScripts: f => vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx), addEventListener: () => {} }; ctx.self = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8') + ';this.__c = CACHE;', ctx); return ctx.__c; })();
-  check(swCache === 'gpxk-v14-1.0.3' && swCache === 'gpxk-v14-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
+  check(swCache === 'gpxk-v15-1.0.4' && swCache === 'gpxk-v15-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
   const liveCaches = await p5.evaluate(() => navigator.serviceWorker.ready.then(() => new Promise(r => { const t0 = Date.now(); (function poll() { caches.keys().then(k => (k.length || Date.now() - t0 > 8000) ? r(k) : setTimeout(poll, 100)); })(); })));
   check(liveCaches.length === 1 && liveCaches[0] === swCache, 'в браузъра работникът е създал кеш ' + JSON.stringify(liveCaches));
   // Бутоните са неактивни, когато няма какво да изчистят.
@@ -901,7 +901,8 @@ function barFits() {
   await p6.waitForFunction(() => __gpxk.S.tracks.length === 1);
   await p6.evaluate(() => { const S = __gpxk.S, t = S.tracks[0], r = S.routes.find(x => x.id === S.curId); r.items = [{ type: 'part', trackId: t.id, a: 0, b: t.pts.length - 1, rev: false }]; __gpxk.refresh(); });
   await p6.click('#bar [data-act="follow"]');
-  for (const st6 of [[42.5, 24.7], [42.5006, 24.7006], [42.5012, 24.7012], [42.5018, 24.7018]]) {
+  await p6.waitForFunction(() => __gpxk.ui.follower && __gpxk.ui.follower.rec.length > 0, null, { timeout: 10000 });
+  for (const st6 of [[42.5006, 24.7006], [42.5012, 24.7012], [42.5018, 24.7018]]) {
     const n6 = await p6.evaluate(() => __gpxk.ui.follower ? __gpxk.ui.follower.rec.length : 0);
     await ctx6.setGeolocation({ latitude: st6[0], longitude: st6[1] });
     await p6.waitForFunction(n => __gpxk.ui.follower && __gpxk.ui.follower.rec.length > n, n6, { timeout: 10000 });
@@ -1060,14 +1061,117 @@ function barFits() {
   await ctx7.close();
   // Браузър без запис (частен режим): казва го веднъж.
   const ctx8 = await browser.newContext({ viewport: { width: 1280, height: 800 }, permissions: ['geolocation'], geolocation: { latitude: 42.5, longitude: 24.7 } });
-  await ctx8.addInitScript({ content: "Object.defineProperty(window, 'indexedDB', { value: undefined, configurable: true });" });
+  await ctx8.addInitScript({ content: "Object.defineProperty(window, 'indexedDB', { value: undefined, configurable: true }); Object.defineProperty(navigator, 'wakeLock', { value: undefined, configurable: true });" });
   const p8 = await ctx8.newPage();
   p8.on('pageerror', e => errors.push('p8 pageerror: ' + e.message));
   await p8.goto(url);
   await p8.waitForFunction(() => window.__gpxk && window.__gpxk.ready);
   await p8.click('#bar [data-act="follow"]');
   await p8.waitForFunction(() => /Следенето не се пази в браузъра/.test(document.querySelector('#toast').textContent), null, { timeout: 3000 }).then(() => check(true, 'без запис в браузъра: "Следенето не се пази в браузъра"'), () => check(false, 'без запис в браузъра: "Следенето не се пази в браузъра"'));
+  check(await p8.evaluate(() => !document.querySelector('#fAwake').hidden && /^Този браузър не може да държи екрана буден/.test(document.querySelector('#fAwake').textContent)), 'без wakeLock панелът казва "Този браузър не може да държи екрана буден"');
   await ctx8.close();
+
+  // Следене след събуждане на екрана (1.0.4): същата сесия продължава, GPS се пуска наново.
+  // Скриването се симулира с visibilityState; спрелият в Safari GPS - със заглушени стари watch-ове.
+  const ctx9 = await browser.newContext({ viewport: { width: 390, height: 844 }, permissions: ['geolocation'], geolocation: { latitude: 42.5, longitude: 24.7 } });
+  await ctx9.addInitScript({ content: `
+    (function () {
+      var g = window.__geo = { calls: 0, dead: 0, mute: false, err: null, wake: 0, vis: 'visible' };
+      Object.defineProperty(document, 'visibilityState', { get: function () { return g.vis; }, configurable: true });
+      Object.defineProperty(document, 'hidden', { get: function () { return g.vis === 'hidden'; }, configurable: true });
+      g.set = function (v) { g.vis = v; if (v === 'hidden') g.dead = g.calls; document.dispatchEvent(new Event('visibilitychange')); };
+      var geo = navigator.geolocation, orig = geo.watchPosition.bind(geo);
+      geo.watchPosition = function (ok, bad, o) {
+        var n = ++g.calls;
+        g.err = bad;
+        return orig(function (p) { if (n > g.dead && !g.mute) ok(p); }, function (e) { if (n > g.dead && !g.mute) bad(e); }, o);
+      };
+      // Ключалката за екрана: подменена, за да се броят исканията и пусканията; при скриване браузърът я пуска сам.
+      g.held = null; g.refuse = false;
+      function release(w) { if (w.released) return; w.released = true; if (g.held === w) g.held = null; w.dispatchEvent(new Event('release')); }
+      document.addEventListener('visibilitychange', function () { if (g.vis === 'hidden' && g.held) release(g.held); });
+      Object.defineProperty(navigator, 'wakeLock', { configurable: true, value: { request: function () {
+        g.wake++;
+        if (g.refuse || g.vis === 'hidden') return Promise.reject(new DOMException('no', 'NotAllowedError'));
+        var w = new EventTarget(); w.released = false; w.type = 'screen'; w.release = function () { release(w); return Promise.resolve(); };
+        g.held = w; return Promise.resolve(w);
+      } } });
+    })();` });
+  const p9 = await ctx9.newPage();
+  p9.on('pageerror', e => errors.push('p9 pageerror: ' + e.message));
+  p9.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text()) && !/api\.opentopodata\.org/.test(m.text())) errors.push('p9 console: ' + m.text()); });
+  await p9.goto(url);
+  await p9.waitForFunction(() => window.__gpxk && window.__gpxk.ready);
+  await p9.setInputFiles('#fileInput', writeGpx('budene', line(42.5, 24.7, 42.52, 24.7, 80)));
+  await p9.waitForFunction(() => __gpxk.S.tracks.length === 1);
+  await p9.evaluate(() => { const S = __gpxk.S, t = S.tracks[0], r = S.routes.find(x => x.id === S.curId); r.items = [{ type: 'part', trackId: t.id, a: 0, b: t.len, rev: false }]; __gpxk.refresh(); });
+  const st9 = () => p9.evaluate(() => { const f = __gpxk.ui.follower; return { on: !!f, n: f ? f.rec.length : 0, len: f ? U.lengthOf(f.rec) : 0, t0: f ? f.t0 : 0, calls: __geo.calls, wake: __geo.wake, held: !!__geo.held, msg: document.querySelector('#fMsg').textContent, awake: document.querySelector('#fAwake').hidden ? '' : document.querySelector('#fAwake').textContent, btn: document.querySelector('#awakeBtn').getAttribute('aria-pressed'), done: document.querySelector('#fDone').textContent, live: document.querySelector('#dlgLive').open }; });
+  await p9.click('#bar [data-act="follow"]');
+  await p9.waitForFunction(() => __gpxk.ui.follower && __gpxk.ui.follower.rec.length > 0, null, { timeout: 10000 });
+  await p9.waitForFunction(() => !!__geo.held, null, { timeout: 3000 }).catch(() => {});
+  const w9 = await st9();
+  check(w9.btn === 'true' && w9.held && w9.wake === 1 && w9.awake === 'Екранът няма да заспива, докато следиш.', '"Екранът буден" е включено по подразбиране, ключалката се държи: "' + w9.awake + '"');
+  const bb9 = await p9.evaluate(() => { const r = document.querySelector('#followBar').getBoundingClientRect(); return Array.from(document.querySelectorAll('#followBar .btn, #followBar .seg')).every(b => { const q = b.getBoundingClientRect(); return q.width > 0 && q.left >= r.left - 1 && q.right <= r.right + 1; }) && document.documentElement.scrollWidth <= innerWidth; });
+  check(bb9, '390 px: копчето "буден" се събира в реда на следенето, без хоризонтален скрол');
+  await ctx9.setGeolocation({ latitude: 42.5009, longitude: 24.7 });
+  await p9.waitForFunction(() => __gpxk.ui.follower.rec.length > 1, null, { timeout: 10000 });
+  const a9 = await st9();
+  check(/^По линията си\. Точност на GPS: \d+\sм\.$/.test(a9.msg) && a9.calls === 1, 'преди скриването: "' + a9.msg + '", GPS пуснат ' + a9.calls + ' път');
+  // Екранът заспива: старият watch замлъква (както в Safari), а човекът изминава ~1.1 км.
+  await p9.evaluate(() => { __geo.mute = true; __geo.set('hidden'); });
+  await ctx9.setGeolocation({ latitude: 42.5109, longitude: 24.7 });
+  await p9.evaluate(() => __geo.err({ code: 3, message: 'timeout' })); // грешка, докато е скрито
+  const h9 = await st9();
+  check(h9.on && h9.n === 2, 'грешка, докато страницата е скрита, не спира следенето');
+  // Връщане на екрана: GPS-ът се пуска наново, панелът чака.
+  await p9.evaluate(() => { Follower.RETRY_MS = 1200; __geo.set('visible'); });
+  const b9 = await st9();
+  check(b9.on && b9.calls === 2 && b9.t0 === a9.t0 && b9.n === 2, 'връщане на видимост без положение пуска GPS наново (watchPosition ' + b9.calls + ' пъти), същата сесия и часовник');
+  check(b9.msg === 'Чакам сигнал от GPS...', 'докато чака, панелът пише "' + b9.msg + '"');
+  check(!h9.held, 'при скриване браузърът пуска ключалката');
+  await p9.waitForFunction(() => !!__geo.held, null, { timeout: 3000 }).catch(() => {});
+  check(b9.wake === a9.wake + 1 && (await st9()).held, 'при връщане на видимост ключалката за екрана се иска наново (wakeLock.request: ' + a9.wake + ' → ' + b9.wake + ')');
+  await p9.waitForFunction(() => __geo.calls >= 3, null, { timeout: 4000 }).then(() => check(true, 'без положение до RETRY_MS: още един опит'), () => check(false, 'без положение до RETRY_MS: още един опит'));
+  await p9.evaluate(() => __geo.err({ code: 3, message: 'timeout' }));
+  check((await st9()).on && (await st9()).msg === 'Чакам сигнал от GPS...', 'грешка "GPS не отговаря", докато чака след връщане, не спира следенето и не сменя съобщението');
+  // Първото ново положение.
+  await p9.evaluate(() => { __geo.mute = false; });
+  await ctx9.setGeolocation({ latitude: 42.5110, longitude: 24.7 });
+  await p9.waitForFunction(() => __gpxk.ui.follower.rec.length > 2, null, { timeout: 10000 });
+  const c9 = await st9();
+  const jump9 = 0.0101 * 111195;
+  check(/^По линията си\. Точност на GPS: \d+\sм\.$/.test(c9.msg), 'при първото ново положение: "' + c9.msg + '"');
+  check(c9.n === 3 && Math.abs(c9.len - a9.len - jump9) < 15 && /^1[.,]2\sот\s2[.,]2\sкм$/.test(c9.done), 'правата линия през паузата влиза в "Изминати": ' + c9.done + ', записани ' + Math.round(a9.len) + ' → ' + Math.round(c9.len) + ' м');
+  check(!c9.live && c9.on, 'за жива сесия не излиза прозорец "Незавършено следене"');
+  await p9.screenshot({ path: path.join(OUT, 'follow-wake-390.png') });
+  // Връщане, при което GPS-ът е дал положение и докато е било скрито: не се пуска наново.
+  await p9.evaluate(() => __geo.set('hidden'));
+  await p9.evaluate(() => { __geo.dead = 0; });
+  await ctx9.setGeolocation({ latitude: 42.5120, longitude: 24.7 });
+  await p9.waitForFunction(() => __gpxk.ui.follower.rec.length > 3, null, { timeout: 10000 });
+  await p9.evaluate(() => __geo.set('visible'));
+  const d9 = await st9();
+  check(d9.calls === c9.calls && /^По линията си/.test(d9.msg), 'с положение и докато е скрито: GPS не се пуска наново, съобщението остава (' + c9.calls + '/' + d9.calls + ', "' + d9.msg + '")');
+  // Изключване на режима: ключалката се пуска, при връщане не се иска; изборът се помни.
+  await p9.click('#awakeBtn');
+  const f9 = await st9();
+  check(f9.btn === 'false' && !f9.held && f9.awake === 'Екранът може да заспи - следенето продължава при събуждане.' && await p9.evaluate(() => U.LS.get('awake', true)) === false, 'изключен "буден": ключалката се пуска, панелът казва "' + f9.awake + '", изборът е в localStorage');
+  await p9.evaluate(() => { __geo.set('hidden'); __geo.set('visible'); });
+  check((await st9()).wake === f9.wake, 'изключен режим: при връщане ключалката не се иска');
+  // Отказ от браузъра: панелът го казва.
+  await p9.evaluate(() => { __geo.refuse = true; });
+  await p9.click('#awakeBtn');
+  await p9.waitForFunction(() => /не позволи/.test(document.querySelector('#fAwake').textContent), null, { timeout: 3000 }).catch(() => {});
+  const g9 = await st9();
+  check(g9.btn === 'true' && /^Браузърът не позволи екранът да стои буден/.test(g9.awake), 'при отказ панелът казва: "' + g9.awake + '"');
+  await p9.evaluate(() => { __geo.refuse = false; __geo.set('hidden'); __geo.set('visible'); });
+  await p9.waitForFunction(() => !!__geo.held, null, { timeout: 3000 }).catch(() => {});
+  check((await st9()).awake === 'Екранът няма да заспива, докато следиш.', 'след отказ: при следващото връщане ключалката се иска пак и се държи');
+  await p9.click('#followBar [data-act="follow-stop"]');
+  check(await p9.evaluate(() => !__geo.held && document.querySelector('#fAwake').hidden), '"Стоп" пуска ключалката и маха реда за екрана');
+  const e9 = await p9.evaluate(() => { const t = __gpxk.S.tracks[__gpxk.S.tracks.length - 1]; return { walk: t.walk, n: t.pts.length, len: t.len }; });
+  check(e9.walk && e9.n === 4 && e9.len > jump9, 'след "Стоп" изминатият трак е един, с правата линия (' + e9.n + ' точки, ' + Math.round(e9.len) + ' м)');
+  await ctx9.close();
 
   check(errors.length === 0, 'конзолата е чиста' + (errors.length ? ': ' + errors.join(' | ') : ''));
   await browser.close();
