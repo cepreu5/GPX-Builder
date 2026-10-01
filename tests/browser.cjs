@@ -1194,6 +1194,8 @@ function barFits() {
     return { n: rec.length, len: U.lengthOf(rec), calls: __geo.calls, done: document.querySelector('#fDone').textContent,
       add: rec.slice(k).map(p => ({ lat: p[0], lon: p[1], t: p[3], acc: p[4], off: Core.nearestOn(G.pts, G.cum, p[0], p[1]).dist })) }; }, k);
   const near = (pts, lat, lon) => pts.some(p => U_hav(p.lat, p.lon, lat, lon) < 1);
+  // Вмъкнатите точки: непрекъснатият ред с празна точност след последното положение преди дупката (измерените винаги носят точност).
+  const insOf = add => { const out = []; for (let i = 1; i < add.length; i++) { if (add[i].acc != null) break; out.push(add[i]); } return out; };
   function U_hav(a, b, c, d) { const R = 6371008.8, r = Math.PI / 180, x = Math.sin((c - a) * r / 2), y = Math.sin((d - b) * r / 2); return 2 * R * Math.asin(Math.sqrt(x * x + Math.cos(a * r) * Math.cos(c * r) * y * y)); }
   const growTo = (pg, k) => pg.waitForFunction(k => __gpxk.ui.follower.rec.length > k, k, { timeout: 10000 });
   await p10.click('#bar [data-act="follow"]');
@@ -1211,7 +1213,7 @@ function barFits() {
   await ctx10.setGeolocation({ latitude: 42.5046, longitude: 24.71 });
   await growTo(p10, a10.n);
   const b10 = await st10(a10.n - 1);
-  const ins10 = b10.add.slice(1, -1), straight10 = U_hav(42.5, 24.7012, 42.5046, 24.71), along10 = U_hav(42.5, 24.7012, 42.5, 24.71) + U_hav(42.5, 24.71, 42.5046, 24.71);
+  const ins10 = insOf(b10.add), straight10 = U_hav(42.5, 24.7012, 42.5046, 24.71), along10 = U_hav(42.5, 24.7012, 42.5, 24.71) + U_hav(42.5, 24.71, 42.5046, 24.71);
   const tUp = pts => pts.every((p, i) => i === 0 || p.t > pts[i - 1].t);
   check(ins10.length > 5 && ins10.every(p => p.off < 1 && p.acc == null) && near(ins10, 42.5, 24.71), 'заспал екран, двете точки върху трака: ' + ins10.length + ' междинни точки по маршрута, с завоя, без точност');
   check(Math.abs(b10.len - a10.len - along10) < 10 && b10.len - a10.len > straight10 + 250, 'дължината расте по маршрута: +' + Math.round(b10.len - a10.len) + ' м (по права ' + Math.round(straight10) + ', по трака ' + Math.round(along10) + '), "Изминати" ' + b10.done);
@@ -1231,7 +1233,7 @@ function barFits() {
   await ctx10.setGeolocation({ latitude: 42.51, longitude: 24.7135 });
   await growTo(p10, b10.n);
   const c10 = await st10(b10.n - 1);
-  const ins10c = c10.add.slice(1, -1), along10c = U_hav(42.5046, 24.71, 42.51, 24.71) + U_hav(42.51, 24.71, 42.51, 24.7135);
+  const ins10c = insOf(c10.add), along10c = U_hav(42.5046, 24.71, 42.51, 24.71) + U_hav(42.51, 24.71, 42.51, 24.7135);
   check(c10.calls === b10.calls && ins10c.length > 5 && ins10c.every(p => p.off < 1 && p.acc == null) && near(ins10c, 42.51, 24.71) && tUp(c10.add), 'дупка при буден екран: ' + ins10c.length + ' междинни точки по маршрута, с завоя, растящи часове');
   check(Math.abs(c10.len - b10.len - along10c) < 10, 'буден екран: дължината расте по маршрута с ' + Math.round(c10.len - b10.len) + ' м (по трака ' + Math.round(along10c) + ')');
   // (3) Точка на 50 м встрани от маршрута - права линия, и към нея, и обратно към трака.
@@ -1259,7 +1261,7 @@ function barFits() {
   await ctx10.setGeolocation({ latitude: 42.52, longitude: 24.7012 });
   await growTo(p10, f10.n);
   const g10 = await st10(f10.n - 1), loopLen = await p10.evaluate(() => __gpxk.G.len), back10 = U_hav(42.52, 24.7041, 42.52, 24.7012);
-  const ins10g = g10.add.slice(1, -1);
+  const ins10g = insOf(g10.add);
   check(near(ins10g, 42.52, 24.71) && near(ins10g, 42.53, 24.71) && near(ins10g, 42.53, 24.70) && ins10g.every(p => p.off < 1) && tUp(g10.add), 'затворен кръг: следата върви напред през трите завоя (' + ins10g.length + ' междинни точки), не назад');
   check(Math.abs(g10.len - f10.len - (loopLen - back10)) < 10, 'затворен кръг: изминати +' + Math.round(g10.len - f10.len) + ' м = обиколката ' + Math.round(loopLen) + ' без ' + Math.round(back10) + ' м назад');
   await p10.click('#followBar [data-act="follow-stop"]');
