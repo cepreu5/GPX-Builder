@@ -269,11 +269,16 @@ var la = partsL('LA'), lb = partsL('LB'), lc = partsL('LC');
 console.log('свръзки', la.map(function (s) { return Math.round(s.a) + '-' + Math.round(s.b); }), lb.map(function (s) { return Math.round(s.a) + '-' + Math.round(s.b); }));
 assert.strictEqual(la.length, 2, 'LA се дели там, където LB се отделя');
 assert.strictEqual(lb.length, 1);
-// Началото на приетата част на LB (точката на прекъсване) е в обхвата на отклонението до LA.
+// Началото на приетата част на LB (точката на прекъсване) е там, където двата трака вървят
+// най-близо (успоредната отсечка на 10 м), а не на границата на отклонението (20 м).
 var lbStart = Core.pointAt(LB, lb[0].a);
-assert.ok(onTrack(LA, lbStart) <= 20, 'точката на прекъсване е в обхвата на отклонението: ' + onTrack(LA, lbStart).toFixed(1) + ' м от LA');
+near(onTrack(LA, lbStart), 10, 0.5, 'точката на LB е на най-близкото място до LA');
 var jl = rl.junctions.filter(function (j) { return U.hav(j.lat, j.lon, lbStart[0], lbStart[1]) < 30; })[0];
 assert.ok(jl && jl.links && jl.links.length, 'точката носи свръзките си');
+// Точката е върху всеки трак, а пръстенът е един - върху LA, който остава след махането.
+jl.branches.forEach(function (b) { assert.ok(onTrack(byL[b.trackId], b.at) < 0.5, 'точката на ' + b.trackId + ' е върху него'); });
+assert.deepStrictEqual(jl.branches.map(function (b) { return b.trackId; }).sort(), ['LA', 'LA', 'LB'], 'клоновете: LA в двете посоки и LB');
+assert.ok(onTrack(LA, jl.ring) < 0.5, 'пръстенът е върху LA, не на ' + onTrack(LA, jl.ring).toFixed(1) + ' м от него');
 (jl.links || []).forEach(function (l) {
   var p = jl.branches[l.a], q = jl.branches[l.b];
   assert.ok(l.d > 1 && l.d <= 20, 'свръзката е до отклонението: ' + l.d.toFixed(1));
@@ -336,3 +341,54 @@ assert.ok(onTrack(LA, gD2.pts[0]) < 0.5 && onTrack(LB, gD2.pts[gD2.pts.length - 
 var gOld = Core.routeGeometry({ items: [P(la[1]), P(lc[0]), { type: 'draw', pts: [{ lat: 42.95, lon: 24.75 }] }] }, byL, rl);
 assert.strictEqual(gOld.items[gOld.items.length - 1].item.type, 'draw', 'стар чертан край остава');
 console.log('свръзки OK');
+
+// ---- Общ участък на два трака, които вървят по един и същи път (GPS шум) ----
+// QA на изток 4 км; QB идва от юг, върви 2 км успоредно на ~8 м с ±4 м шум и на двата,
+// после се отделя на север. Пръстените са два (по един на всеки край) и при 20, и при 12 м.
+var seed = 7;
+function rnd() { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }
+var QM = 6371008.8 * Math.PI / 180, qkx = Math.cos(43 * Math.PI / 180) * QM;
+function qp(x, y) { return [43 + y / QM, 24 + x / qkx, 500]; }
+function coTracks(bump) {
+  var a = { id: 'QA', pts: [] }, b = { id: 'QB', pts: [] }, x, y;
+  for (x = 0; x <= 4000; x += 10) a.pts.push(qp(x, (rnd() - 0.5) * 8));
+  for (y = -800; y < 8; y += 10) b.pts.push(qp(1000, y));
+  for (x = 1000; x <= 3000; x += 10) b.pts.push(qp(x, 8 + (rnd() - 0.5) * 8 + (bump ? bump(x) : 0)));
+  for (y = 18; y <= 800; y += 10) b.pts.push(qp(3000, y));
+  return [a, b];
+}
+function coCheck(name, tr, tol, stretches) {
+  var res = decided(tr, tol), by = { QA: tr[0], QB: tr[1] };
+  var dB = res.byTrack.QB.filter(function (s) { return s.kind === 'dup'; });
+  console.log(name, tol, 'QB', res.byTrack.QB.filter(function (s) { return s.kind !== 'gap'; }).map(function (s) { return s.kind + ':' + Math.round(s.a) + '-' + Math.round(s.b); }), 'пръстени', res.junctions.length);
+  assert.strictEqual(dB.length, stretches, name + ' @' + tol + ': общи участъци');
+  assert.strictEqual(res.junctions.length, 2 * stretches, name + ' @' + tol + ': по един пръстен на всеки край, без паразитни');
+  res.junctions.forEach(function (j) {
+    assert.deepStrictEqual(j.branches.map(function (b) { return b.trackId; }).sort(), ['QA', 'QA', 'QB'], name + ': клонове');
+    j.branches.forEach(function (b) { assert.ok(onTrack(by[b.trackId], b.at) < 0.5, name + ': точката на ' + b.trackId + ' е върху него'); });
+    var pb = j.branches.filter(function (b) { return b.trackId === 'QB'; })[0];
+    assert.ok(onTrack(tr[0], pb.at) <= 10, name + ' @' + tol + ': точката на QB е там, където траковете съвпадат: ' + onTrack(tr[0], pb.at).toFixed(1) + ' м от QA');
+    assert.ok(onTrack(tr[0], j.ring) < 0.5, name + ': пръстенът е върху QA (остава след махането)');
+  });
+  // След махането QA е цял: частите му се допират, маршрутът по него е без дупка.
+  var qa = res.byTrack.QA.filter(function (s) { return s.kind === 'part'; });
+  assert.strictEqual(qa.length, 1 + 2 * stretches, name + ': QA се дели във всяка точка');
+  var g = Core.routeGeometry({ items: qa.map(function (s) { return P(s); }) }, by, res);
+  assert.strictEqual(g.gaps.length + g.autoGaps.length, 0, name + ': по QA няма дупка');
+  // QA -> QB нататък: свръзката е само разстоянието между двете точки на края.
+  var qb = res.byTrack.QB.filter(function (s) { return s.kind === 'part'; });
+  var gq = Core.routeGeometry({ items: [P(qa[qa.length - 2]), P(qb[qb.length - 1])] }, by, res);
+  assert.strictEqual(gq.gaps.length, 0, name + ': QA -> QB без дупка');
+  gq.items.filter(function (x) { return x.auto; }).forEach(function (x) { assert.ok(x.len <= 10, name + ': свръзка ' + x.len.toFixed(1) + ' м'); });
+  return res;
+}
+coCheck('съвпадащи', coTracks(), 20, 1);
+coCheck('съвпадащи', coTracks(), 12, 1);
+// Отклонение до 100 м вътре в участъка (QB се отдалечава на 30 м за ~80 м) не вади нова точка.
+function bumpOf(x0, len, h) { return function (x) { return x > x0 && x < x0 + len ? h : 0; }; }
+coCheck('отклонение 80 м', coTracks(bumpOf(1900, 80, 30)), 20, 1);
+coCheck('отклонение 80 м', coTracks(bumpOf(1900, 80, 30)), 12, 1);
+// Над 100 м (тук ~300 м на 40 м встрани) траковете се разделят: два общи участъка, четири пръстена.
+coCheck('отклонение 300 м', coTracks(bumpOf(1800, 300, 40)), 20, 2);
+coCheck('отклонение 300 м', coTracks(bumpOf(1800, 300, 40)), 12, 2);
+console.log('общ участък OK');

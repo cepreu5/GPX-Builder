@@ -6,6 +6,9 @@
   var U = window.U;
   var MPD = 6371008.8 * Math.PI / 180; // метри на градус по меридиана
   var ROUTE_GAP = 30; // над толкова метра между две части е дупка
+  var DUP_BRIDGE = 100; // разминаване до толкова метра вътре в общ участък не го дели на два
+  var JOIN_WIN = 25; // прозорец (м) за изгладения профил на разстоянието между два трака
+  var JOIN_TIE = 0.002; // при равни разстояния - по-близо до края на общата отсечка (м на м)
   var LINK_MIN = 1; // между части от различни тракове скок над толкова метра се свързва (до отклонението)
 
   // Натрупани разстояния и дължина - пазят се върху обекта, без да се записват.
@@ -99,7 +102,7 @@
     var cell = Math.max(tol, 25) * 2;
     var grid = new Map();
     var minDup = Math.max(100, 4 * tol);
-    var minGap = Math.max(60, 3 * tol);
+    var minGap = Math.max(DUP_BRIDGE, 3 * tol);
     var lag = Math.max(300, 10 * tol);
 
     // dups - махнатите (след клик върху маркера), pend - намерените, които чакат клик;
@@ -208,16 +211,21 @@
           });
           runs = out;
         }
+        // Кратки разминавания между два дубликата (до DUP_BRIDGE) се сливат с тях - преди
+        // да се отсеят кратките съвпадения, иначе шумът на GPS дели общата отсечка на късове.
+        function bridge() {
+          runs.forEach(function (r, ri) {
+            if (r.v || ri === 0 || ri === runs.length - 1) return;
+            var bb = bounds(r, ri);
+            if (bb[1] - bb[0] <= minGap) r.v = 1;
+          });
+          merge();
+        }
+        bridge();
         // Кратки съвпадения (кръстовища) не са дубликати.
         runs.forEach(function (r, ri) { var bb = bounds(r, ri); if (r.v && bb[1] - bb[0] < minDup) r.v = 0; });
         merge();
-        // Кратки различни парченца между два дубликата се сливат с тях.
-        runs.forEach(function (r, ri) {
-          if (r.v || ri === 0 || ri === runs.length - 1) return;
-          var bb = bounds(r, ri);
-          if (bb[1] - bb[0] < minGap) r.v = 1;
-        });
-        merge();
+        bridge();
         // Трохи в края до дубликат също отиват към него.
         runs.forEach(function (r, ri) {
           if (r.v || runs.length < 2) return;
@@ -309,38 +317,49 @@
     function partsOf(id) { return result.byTrack[id].filter(function (s) { return s.kind === 'part' && !s.pend; }); }
     var anyDup = [];
     live.forEach(function (t) { result.byTrack[t.id].forEach(function (s) { if (s.kind === 'dup' || s.pend) anyDup.push(s); }); });
-    // 0. Границата между дубликат и приет участък от същия трак се мести навътре в дубликата,
-    // докато трасето е в обхвата на отклонението до другия трак. Там е точката на прекъсване:
-    // краят на участъка е на отклонение от другия трак и свръзката до него не оставя дупка.
+    // 0. Границата между дубликат и приет участък от същия трак се мести навътре в дубликата
+    // до мястото, където двата трака вървят най-близо (по изгладен профил, за да не
+    // танцува по шума на GPS). Там е точката на прекъсване: по една точка върху всеки трак.
+    var ext = []; // докъде са влезли приетите участъци в общата отсечка - там пресичания няма
+    var reach = Math.max(100, 4 * tol) - 10; // по-навътре остатъкът след клик би бил нов дубликат
     anyDup.forEach(function (d) {
       var t = byId[d.trackId], o = byId[d.withId];
       if (!t || !o) return;
       var ps = partsOf(d.trackId);
-      function within(x) {
-        var q = pointAt(t, x), n = nearestInRange(o, d.withA - 60, d.withB + 60, q[0], q[1], kx, ky);
-        return n && n.dist <= tol;
-      }
-      var room = Math.max(0, d.len - JOIN_MIN);
-      [['b', 'a', -1], ['a', 'b', 1]].forEach(function (c) {
-        var e = d[c[0]], p = ps.filter(function (x) { return Math.abs(x[c[1]] - e) < 1; })[0];
-        if (!p) return;
-        for (var k = 0; k <= Math.min(80, room); k += 2) {
-          var x = e + c[2] * k;
-          if (!within(x)) continue;
-          if (k) {
-            d[c[0]] = x; d.len = d.b - d.a; p[c[1]] = x; p.len = p.b - p.a;
-            p.key = p.trackId + ':' + Math.round(p.a); d.key = d.trackId + ':' + Math.round(d.a);
-            room -= k;
-          }
-          break;
+      var ends = [['a', 'b', 1], ['b', 'a', -1]].map(function (c) {
+        return { c: c, p: ps.filter(function (x) { return Math.abs(x[c[1]] - d[c[0]]) < 1; })[0] };
+      }).filter(function (x) { return x.p; });
+      if (!ends.length) return;
+      var room = Math.max(0, d.len - JOIN_MIN) / ends.length;
+      ends.forEach(function (en) {
+        var c = en.c, p = en.p, e = d[c[0]], K = Math.min(reach, room);
+        var raw = [];
+        for (var k = 0; k <= K; k += 2) {
+          var q = pointAt(t, e + c[2] * k), n = nearestInRange(o, d.withA - 60, d.withB + 60, q[0], q[1], kx, ky);
+          raw.push(n ? n.dist : Infinity);
         }
+        var h = Math.round(JOIN_WIN / 4), best = 0, bv = Infinity;
+        for (var i = 0; i < raw.length; i++) {
+          var sum = 0, cnt = 0;
+          for (var m = Math.max(0, i - h); m <= Math.min(raw.length - 1, i + h); m++) { sum += raw[m]; cnt++; }
+          var v = sum / cnt + i * 2 * JOIN_TIE;
+          if (v < bv) { bv = v; best = i; }
+        }
+        if (!best) return;
+        var x = e + c[2] * best * 2;
+        d[c[0]] = x; d.len = d.b - d.a; p[c[1]] = x; p.len = p.b - p.a;
+        p.key = p.trackId + ':' + Math.round(p.a); d.key = d.trackId + ':' + Math.round(d.a);
+        ext.push({ t: t.id, o: o.id, a: Math.min(e, x), b: Math.max(e, x) });
       });
     });
     // 1. Краищата на дубликатите (махнати или не), до които има приет участък от същия трак.
     anyDup.forEach(function (d) {
       var ps = partsOf(d.trackId);
       [d.a, d.b].forEach(function (e) {
-        if (ps.some(function (p) { return Math.abs(p.a - e) < 1 || Math.abs(p.b - e) < 1; })) cand.push(pointAt(byId[d.trackId], e));
+        if (!ps.some(function (p) { return Math.abs(p.a - e) < 1 || Math.abs(p.b - e) < 1; })) return;
+        var q = pointAt(byId[d.trackId], e);
+        q.keep = d.withId; // тракът, който остава, след като дубликатът се махне
+        cand.push(q);
       });
     });
     // 2. Край на приет участък при приет участък от друг трак.
@@ -372,14 +391,19 @@
         for (var ix = ax; ix <= bx; ix++) for (var iy = ay; iy <= by; iy++) {
           var k = ix + ':' + iy, l = grid.get(k);
           if (!l) grid.set(k, l = []);
-          l.push([ti, j, x0, y0, x1, y1]);
+          l.push([ti, j, x0, y0, x1, y1, (c[j] + c[j + 1]) / 2]);
         }
       }
     });
+    // Влезлият в общата отсечка участък върви по другия трак и го пресича по шума - не са кръстовища.
+    function inExt(p, q) {
+      var tp = live[p[0]].id, tq = live[q[0]].id;
+      return ext.some(function (x) { return x.t === tp && x.o === tq && p[6] >= x.a - 1 && p[6] <= x.b + 1; });
+    }
     grid.forEach(function (l) {
       for (var m = 0; m < l.length; m++) for (var n = m + 1; n < l.length; n++) {
         var p = l[m], q = l[n];
-        if (p[0] === q[0]) continue;
+        if (p[0] === q[0] || inExt(p, q) || inExt(q, p)) continue;
         var f = segCross(p[2], p[3], p[4], p[5], q[2], q[3], q[4], q[5]);
         if (f == null) continue;
         cand.push([(p[3] + f * (p[5] - p[3])) / ky, (p[2] + f * (p[4] - p[2])) / kx, null]);
@@ -388,7 +412,7 @@
     // Близките точки се сливат; остава първата (краищата на дубликатите са с предимство).
     var js = [];
     cand.forEach(function (q) {
-      if (!js.some(function (j) { return U.hav(j.lat, j.lon, q[0], q[1]) <= jt; })) js.push({ lat: q[0], lon: q[1] });
+      if (!js.some(function (j) { return U.hav(j.lat, j.lon, q[0], q[1]) <= jt; })) js.push({ lat: q[0], lon: q[1], keep: q.keep || null });
     });
     // Разделяне на приетите участъци в точките.
     live.forEach(function (t) {
@@ -423,6 +447,10 @@
           if (Math.min(da, db) <= jt) j.branches.push({ trackId: t.id, a: s.a, b: s.b, len: s.len, key: s.key, from: from, at: from === 'a' ? pa : pb });
         });
       });
+      // Точката на прекъсване е върху всеки трак (краят на клоновете му), а пръстенът е един:
+      // върху точката на трака, който остава след махането на дубликата - така не виси отстрани.
+      var kb = j.keep && j.branches.filter(function (br) { return br.trackId === j.keep; })[0];
+      j.ring = kb ? kb.at.slice(0, 2) : [j.lat, j.lon];
       // Свръзките: краищата на клонове от различни тракове, по-близо от отклонението. Всеки
       // край лежи на своя трак, така че свързващата отсечка стига точно до продължаващия трак.
       j.links = [];
@@ -768,7 +796,7 @@
   window.Core = {
     prep: prep, analyze: analyze, slice: slice, pointAt: pointAt, nearestOn: nearestOn,
     nearestOnTrack: nearestOnTrack, invalidShare: invalidShare, routeGeometry: routeGeometry,
-    trackBounds: trackBounds, overlap: overlap, ROUTE_GAP: ROUTE_GAP, LINK_MIN: LINK_MIN,
+    trackBounds: trackBounds, overlap: overlap, ROUTE_GAP: ROUTE_GAP, LINK_MIN: LINK_MIN, DUP_BRIDGE: DUP_BRIDGE,
     routeForks: routeForks, switchFork: switchFork, branchProbe: branchProbe,
     mergeIv: mergeIv, trimItems: trimItems,
     joinTol: function (tol) { return Math.max(ROUTE_GAP, 1.5 * (tol || 20)); }

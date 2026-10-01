@@ -383,8 +383,9 @@
     return br.from === 'a' ? Core.slice(t, br.a, br.a + L) : Core.slice(t, br.b - L, br.b);
   }
   function forkOf(j) { return (G && G.forks || []).filter(function (f) { return f.j === j; })[0]; }
-  // Къде стои пръстенът: по маршрута - върху продължаващия трак (след свръзката), иначе в точката.
-  function ringAt(j) { var f = forkOf(j); return f && f.at ? f.at : [j.lat, j.lon]; }
+  // Къде стои пръстенът: върху точката на трака, който остава след махането на дубликата
+  // (ядрото я дава в j.ring), така че не виси отстрани и след махането.
+  function ringAt(j) { return j.ring || [j.lat, j.lon]; }
   function drawForks(ctx, m, pr, tb, hv) {
     var drawn = [];
     // Клоновете: избраният се подчертава, другите се приглушават; при посочване светват всички.
