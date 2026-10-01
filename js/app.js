@@ -1712,6 +1712,8 @@
       waiting: function () { renderFollow(); },
       // Следеният маршрут - по него минава следата през дупка в GPS.
       route: function () { return G; },
+      // Височината на вмъкната точка - от профила на маршрута (числата в панела), само ако профилът е за същия маршрут.
+      ele: function (geo, d) { return prof && geo === G && Math.abs(prof.total - geo.len) < 1 ? Elev.eleAt(prof, d) : null; },
       awake: showAwake
     });
     f.awakeOn = ui.awake;

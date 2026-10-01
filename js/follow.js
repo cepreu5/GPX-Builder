@@ -156,7 +156,8 @@
     /* Следата между последната записана точка и новата: точките на маршрута помежду им, ако и двете
        са до ON_LIMIT м от линията му. Напред по посоката на маршрута (при затворен кръг - през края
        му към началото), назад само по отворен маршрут. Час - разпределен по разстояние между часовете
-       на двете точки; височина - по права между двете, ако ги има; точност - празна. */
+       на двете точки; височина - от профила на маршрута на мястото на точката по него (cb.ele), без профил -
+       от самия трак, а без нито едно - по права между двете измерени, ако ги има; точност - празна. */
     bridge: function (last, p) {
       var geo = this.cb.route ? this.cb.route() : null;
       var pts = geo && geo.pts, cum = geo && geo.cum;
@@ -190,10 +191,14 @@
       var way = [last].concat(idx.map(function (j) { return pts[j]; }), [p]), s = [0];
       for (i = 1; i < way.length; i++) s.push(s[i - 1] + U.hav(way[i - 1][0], way[i - 1][1], way[i][0], way[i][1]));
       var S = s[s.length - 1] || 1, out = [];
+      var cb = this.cb;
       for (i = 1; i < way.length - 1; i++) {
-        var f = s[i] / S;
-        out.push([Math.round(way[i][0] * 1e6) / 1e6, Math.round(way[i][1] * 1e6) / 1e6,
-          last[2] != null && p[2] != null ? Math.round(last[2] + f * (p[2] - last[2])) : null,
+        var f = s[i] / S, j = idx[i - 1];
+        var e = cb.ele ? cb.ele(geo, cum[j]) : null;
+        if (e == null) e = pts[j][2];
+        e = e != null && isFinite(e) ? Math.round(e * 10) / 10 :
+          last[2] != null && p[2] != null ? Math.round(last[2] + f * (p[2] - last[2])) : null;
+        out.push([Math.round(way[i][0] * 1e6) / 1e6, Math.round(way[i][1] * 1e6) / 1e6, e,
           Math.round(last[3] + f * (p[3] - last[3])), null]);
       }
       return out;

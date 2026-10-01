@@ -798,9 +798,9 @@ function barFits() {
   // Версия: в дъното и в името на кеша от sw.js.
   const verText = (await p5.textContent('#appVersion')).trim();
   const ver = (verText.match(/^\d+\.\d+\.\d+/) || [''])[0];
-  check(ver === '1.0.5' && await p5.isVisible('#appVersion') && /^Версия 1\.0\.5 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
+  check(ver === '1.0.6' && await p5.isVisible('#appVersion') && /^Версия 1\.0\.6 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
   const swCache = (() => { const ctx = { importScripts: f => vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx), addEventListener: () => {} }; ctx.self = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8') + ';this.__c = CACHE;', ctx); return ctx.__c; })();
-  check(swCache === 'gpxk-v16-1.0.5' && swCache === 'gpxk-v16-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
+  check(swCache === 'gpxk-v17-1.0.6' && swCache === 'gpxk-v17-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
   const liveCaches = await p5.evaluate(() => navigator.serviceWorker.ready.then(() => new Promise(r => { const t0 = Date.now(); (function poll() { caches.keys().then(k => (k.length || Date.now() - t0 > 8000) ? r(k) : setTimeout(poll, 100)); })(); })));
   check(liveCaches.length === 1 && liveCaches[0] === swCache, 'в браузъра работникът е създал кеш ' + JSON.stringify(liveCaches));
   // Бутоните са неактивни, когато няма какво да изчистят.
@@ -1084,7 +1084,10 @@ function barFits() {
       geo.watchPosition = function (ok, bad, o) {
         var n = ++g.calls;
         g.err = bad;
-        return orig(function (p) { if (n > g.dead && !g.mute) ok(p); }, function (e) { if (n > g.dead && !g.mute) bad(e); }, o);
+        // g.alt: височина на GPS (подменя тази на браузъра, който не дава височина).
+        var withAlt = function (p) { if (g.alt == null) return p; var c = p.coords;
+          return { timestamp: p.timestamp, coords: { latitude: c.latitude, longitude: c.longitude, altitude: g.alt, accuracy: c.accuracy, heading: c.heading, speed: c.speed } }; };
+        return orig(function (p) { if (n > g.dead && !g.mute) ok(withAlt(p)); }, function (e) { if (n > g.dead && !g.mute) bad(e); }, o);
       };
       // Ключалката за екрана: подменена, за да се броят исканията и пусканията; при скриване браузърът я пуска сам.
       g.held = null; g.refuse = false;
@@ -1268,6 +1271,63 @@ function barFits() {
   const h10 = await p10.evaluate(() => { const S = __gpxk.S, t = S.tracks[S.tracks.length - 1], w = S.routes.find(r => r.items && r.items.length === 1 && r.items[0].trackId === t.id); return { walk: t.walk, n: t.pts.length, len: t.len, rec: !!w }; });
   check(h10.walk && h10.n === g10.n && Math.abs(h10.len - g10.len) < 1 && h10.rec, 'след "Стоп" изминатият трак и записът в "Записани маршрути" носят следата (' + h10.n + ' точки, ' + Math.round(h10.len) + ' м)');
   await ctx10.close();
+
+  // Височина на вмъкнатите точки (1.0.6): от профила на маршрута на мястото им, не по права между измерените.
+  // Услугата за височини е подменена: височината е вълна по дължина, далеч от правата между GPS-височините 100 и 160.
+  const ELE_FN = (lat, lon) => 800 + 5000 * (lat - 42.5) + 60 * Math.sin((lon - 24.7) * 3000);
+  const noEle = (name, pts) => { const f = writeGpx(name, pts); fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/<ele>[^<]*<\/ele>/g, '')); return f; };
+  async function eleCase(withProfile) {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, permissions: ['geolocation'], geolocation: { latitude: 42.5, longitude: 24.7 } });
+    await ctx.addInitScript({ content: GEO_INIT });
+    await ctx.route(/api\.open-meteo\.com|api\.opentopodata\.org/, route => {
+      const u = new URL(route.request().url());
+      if (!withProfile || u.hostname !== 'api.open-meteo.com') return route.abort();
+      const la = u.searchParams.get('latitude').split(',').map(Number), lo = u.searchParams.get('longitude').split(',').map(Number);
+      route.fulfill({ status: 200, headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }, body: JSON.stringify({ elevation: la.map((v, i) => ELE_FN(v, lo[i])) }) });
+    });
+    const pg = await ctx.newPage();
+    pg.on('pageerror', e => errors.push('p11 pageerror: ' + e.message));
+    pg.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text()) && !/api\.opentopodata\.org|api\.open-meteo\.com/.test(m.text())) errors.push('p11 console: ' + m.text()); });
+    await pg.goto(url);
+    await pg.waitForFunction(() => window.__gpxk && window.__gpxk.ready);
+    await pg.setInputFiles('#fileInput', noEle(withProfile ? 'vis-prof' : 'vis-bez', zig));
+    await pg.waitForFunction(() => __gpxk.S.tracks.length === 1);
+    await useTrack(pg);
+    if (withProfile) await pg.waitForFunction(() => __gpxk.prof && /Open-Meteo/.test(document.querySelector('#elevNote').textContent), null, { timeout: 15000 });
+    else await pg.waitForFunction(() => /не са налични/.test(document.querySelector('#elevNote').textContent), null, { timeout: 15000 });
+    await pg.evaluate(() => { __geo.alt = 100; });
+    await pg.click('#bar [data-act="follow"]');
+    await pg.waitForFunction(() => __gpxk.ui.follower.rec.length > 0, null, { timeout: 10000 });
+    await ctx.setGeolocation({ latitude: 42.5, longitude: 24.7012 });
+    await pg.waitForFunction(() => { const r = __gpxk.ui.follower.rec, p = r[r.length - 1]; return Math.abs(p[1] - 24.7012) < 1e-6; }, null, { timeout: 10000 });
+    const k = await pg.evaluate(() => __gpxk.ui.follower.rec.length);
+    await pg.evaluate(() => { __geo.alt = 160; });
+    await ctx.setGeolocation({ latitude: 42.5046, longitude: 24.71 });
+    await pg.waitForFunction(k => __gpxk.ui.follower.rec.length > k, k, { timeout: 10000 });
+    const r = await pg.evaluate(k => { const rec = __gpxk.ui.follower.rec, G = __gpxk.G, prof = __gpxk.prof, out = [];
+      for (let i = k; i < rec.length && rec[i][4] == null; i++) {
+        const nn = Core.nearestOn(G.pts, G.cum, rec[i][0], rec[i][1]);
+        out.push({ lat: rec[i][0], lon: rec[i][1], ele: rec[i][2], prof: prof ? Elev.eleAt(prof, nn.d) : null });
+      }
+      const last = rec[k - 1], next = rec[k + out.length];
+      return { ins: out, last: [last[0], last[1], last[2]], next: next && [next[0], next[1], next[2]], prof: !!prof, measured: rec.filter(p => p[4] != null).map(p => p[2]) };
+    }, k);
+    // Права линия между двете измерени, по разстоянието по следата.
+    const way = [r.last].concat(r.ins.map(p => [p.lat, p.lon]), [r.next]), s = [0];
+    for (let i = 1; i < way.length; i++) s.push(s[i - 1] + U_hav(way[i - 1][0], way[i - 1][1], way[i][0], way[i][1]));
+    const straight = r.ins.map((p, i) => Math.round(100 + s[i + 1] / s[s.length - 1] * 60));
+    await pg.click('#followBar [data-act="follow-stop"]');
+    await ctx.close();
+    return { r, straight };
+  }
+  const ep = await eleCase(true);
+  const epd = ep.r.ins.map(p => Math.abs(p.ele - p.prof)), epf = ep.r.ins.map((p, i) => Math.abs(p.ele - ep.straight[i]));
+  check(ep.r.prof && ep.r.ins.length > 5 && epd.every(d => d <= 0.06) && Math.min(...epf) > 300,
+    'дупка с профил: ' + ep.r.ins.length + ' вмъкнати точки с височината от профила (най-голяма разлика ' + Math.max(...epd).toFixed(2) + ' м; напр. ' + ep.r.ins.slice(0, 3).map(p => p.ele + ' = ' + p.prof.toFixed(1)).join(', ') + '), не по правата (' + ep.straight.slice(0, 3).join(', ') + ')');
+  check(ep.r.last[2] === 100 && ep.r.next[2] === 160 && ep.r.measured.every(e => e === 100 || e === 160), 'измерените положения си остават с височината от GPS: ' + JSON.stringify(ep.r.measured));
+  const en = await eleCase(false);
+  check(!en.r.prof && en.r.ins.length > 5 && en.r.ins.every((p, i) => p.ele === en.straight[i]) && en.r.ins.some(p => p.ele > 100 && p.ele < 160),
+    'без профил и без височина в трака: права линия между 100 и 160 м (' + en.r.ins.map(p => p.ele).join(', ') + ')');
 
   check(errors.length === 0, 'конзолата е чиста' + (errors.length ? ': ' + errors.join(' | ') : ''));
   await browser.close();
