@@ -166,6 +166,7 @@ body.bar-hidden .bar { transform: translateY(-110%); }
 .tol .tol-unit { color: var(--app-muted); }
 .tol b { min-width: 44px; }
 .follow-row { font-size: 13px; }
+.follow-row .seg, .follow-row .btn { flex-shrink: 0; }
 
 /* Картата - цял екран */
 .mapwrap { position: relative; height: 100vh; height: 100svh; min-height: 320px; overflow: hidden; background: var(--app-map-bg); }
@@ -326,6 +327,8 @@ td .num, td.num { font-family: var(--app-mono); }
 .follow-msg { margin: 8px 0 0; font-size: 13px; }
 .follow-msg.warn { color: var(--app-warn); font-weight: 600; }
 .follow-msg.err { color: var(--app-danger); font-weight: 600; }
+.follow-done { margin-top: 10px; gap: 8px; flex-wrap: wrap; align-items: center; }
+.btn[aria-disabled="true"] { opacity: .45; cursor: default; }
 
 .foot { color: var(--app-muted); font-size: 12px; padding: 8px 2px; }
 .foot p { margin: 4px 0; }
@@ -338,6 +341,10 @@ td .num, td.num { font-family: var(--app-mono); }
 }
 .dlg::backdrop { background: rgba(0, 0, 0, 0.35); }
 .dlg h3 { margin: 0 0 12px; font-size: 16px; }
+.dlg-sm { width: min(420px, calc(100% - 24px)); }
+.name-row { gap: 8px; align-items: center; margin-bottom: 12px; }
+.name-row input { flex: 1; min-width: 0; font: inherit; padding: 6px 10px; border: 1px solid var(--app-line); border-radius: var(--app-radius-sm); background: var(--app-surface); color: var(--app-ink); }
+.dlg .row .sp { flex: 1; }
 .drop {
   display: flex; flex-direction: column; gap: 6px; align-items: center; text-align: center;
   border: 2px dashed var(--app-accent); border-radius: 8px; background: var(--app-accent-soft);
@@ -391,6 +398,9 @@ td .num, td.num { font-family: var(--app-mono); }
   .follow-stats > div:nth-child(-n+2) { border-bottom: 1px solid var(--app-line); }
   .cutbox { width: calc(100% - 70px); left: 10px; transform: none; }
   .lib-head input { width: 100%; margin-left: 0; }
+  .walk-w { display: none; }
+  .follow-row { flex-wrap: wrap; row-gap: 4px; }
+  #followTitle { flex: 1 0 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mapctl.tr { gap: 4px; }
   .mapctl.tr .seg button { padding: 5px 8px; }
   .mapctl.tr .chk { padding: 4px 6px; gap: 4px; }

@@ -299,9 +299,65 @@ function barFits() {
   check(await page.evaluate(() => document.body.classList.contains('bar-hidden') && !!__gpxk.ui.follower), 'следене: копчето скрива лентата, следенето продължава');
   await page.click('#barHandle');
   check(await page.evaluate(() => !document.body.classList.contains('bar-hidden')), 'следене: табчето връща лентата');
+  // (а) Изминатото дотук като .gpx със сменено име - следенето продължава.
+  check(await page.getAttribute('#walkGpxBtn', 'aria-disabled') === 'false', 'следене: "Изнеси .gpx" е активно при две и повече точки');
+  await page.click('#walkGpxBtn');
+  check(await page.isVisible('#dlgName'), 'следене: "Изнеси .gpx" отваря прозореца за име');
+  const defName = await page.inputValue('#fileName');
+  const followName = await page.evaluate(() => __gpxk.S.routes.find(r => r.id === __gpxk.S.curId).name);
+  check(defName === 'izminat-' + await page.evaluate(n => U.slug(n) + '-' + U.dateDots(Date.now()), followName), 'прозорец за име: попълнено ' + defName);
+  await page.keyboard.press('Escape');
+  check(await page.evaluate(() => !document.querySelector('#dlgName').open && !!__gpxk.ui.follower), 'прозорец за име: Escape затваря, следенето продължава');
+  await page.click('#walkGpxBtn');
+  await page.click('#nameCancel');
+  check(await page.evaluate(() => !document.querySelector('#dlgName').open), 'прозорец за име: "Отказ" затваря');
+  await page.click('#walkGpxBtn');
+  await page.fill('#fileName', 'moya razhodka');
+  const [wdl] = await Promise.all([page.waitForEvent('download'), page.press('#fileName', 'Enter')]);
+  const wFile = path.join(OUT, 'walk-' + wdl.suggestedFilename());
+  await wdl.saveAs(wFile);
+  const wxml = fs.readFileSync(wFile, 'utf8');
+  const wn = await page.evaluate(() => __gpxk.ui.follower.rec.length);
+  check(wdl.suggestedFilename() === 'moya razhodka.gpx', 'сваляне при следене: сменено име, добавено .gpx - ' + wdl.suggestedFilename());
+  check((wxml.match(/<trk>/g) || []).length === 1 && (wxml.match(/<trkpt /g) || []).length === wn && /<time>/.test(wxml), 'сваляне при следене: един трак, ' + wn + ' точки с час');
+  check(await page.evaluate(() => !document.querySelector('#dlgName').open && !!__gpxk.ui.follower && /Изнесен moya razhodka\.gpx/.test(document.querySelector('#toast').textContent)), 'сваляне при следене: следенето продължава, съобщение ' + await page.textContent('#toast'));
+  await page.click('#walkGpxBtn');
+  await page.fill('#fileName', '  ');
+  const [wdl2] = await Promise.all([page.waitForEvent('download'), page.click('#nameForm button[type="submit"]')]);
+  check(wdl2.suggestedFilename() === defName + '.gpx', 'празно име връща името по подразбиране - ' + wdl2.suggestedFilename());
+
+  // Редът на следенето с новото копче се събира на 390 px.
+  await page.setViewportSize({ width: 390, height: 800 });
+  const fr = await page.evaluate(() => { const row = document.querySelector('#followBar'), rr = row.getBoundingClientRect(), b = document.querySelector('#walkGpxBtn').getBoundingClientRect(), seg = document.querySelector('#followBar .seg'), stop = document.querySelector('#followBar [data-act="follow-stop"]').getBoundingClientRect();
+    return { fits: row.scrollWidth <= row.clientWidth && seg.scrollWidth <= seg.clientWidth && stop.right <= innerWidth + 0.5 && b.right <= innerWidth + 0.5 && b.width > 0 && rr.right <= innerWidth + 0.5, info: Math.round(b.left) + '-' + Math.round(b.right) + ' px, ред ' + Math.round(rr.height) + ' px' }; });
+  await page.screenshot({ path: path.join(OUT, 'follow-map-390.png') });
+  check(fr.fits, 'следене на 390 px: "Изнеси .gpx" се събира в реда - ' + fr.info);
+  await page.setViewportSize({ width: 1280, height: 800 });
   const nt = await page.evaluate(() => __gpxk.S.tracks.length);
+  const nr = await page.evaluate(() => __gpxk.S.routes.length);
+  const followId = await page.evaluate(() => __gpxk.S.curId);
   await page.click('[data-act="follow-stop"]');
   check(await page.evaluate(n => __gpxk.S.tracks.length === n + 1 && /изминат/.test(__gpxk.S.tracks[n].name), nt), 'изминатият път е записан като нов трак');
+
+  // (б) Отделният запис в "Записани маршрути": една част - целият изминат трак; текущ остава следеният.
+  const walkRec = await page.evaluate(n => {
+    const S = __gpxk.S, t = S.tracks[n], r = S.routes.find(x => x.name === t.name && x.items.length === 1 && x.items[0].trackId === t.id);
+    return r && { id: r.id, name: r.name, item: r.items[0], last: t.pts.length - 1, walks: S.routes.find(x => x.id === S.curId).walks.includes(t.id), cur: S.curId };
+  }, nt);
+  check(!!walkRec && walkRec.item.type === 'part' && walkRec.item.a === 0 && walkRec.item.b === walkRec.last && walkRec.item.rev === false, 'отделен запис: една част от целия изминат трак ' + JSON.stringify(walkRec && walkRec.item));
+  check(!!walkRec && walkRec.cur === followId && walkRec.walks && await page.evaluate(n => __gpxk.S.routes.length === n + 1, nr), 'отделен запис: следеният маршрут остава текущ, тракът е в неговите изминати');
+  check(!!walkRec && (await page.textContent('#toast')).includes('отделен маршрут "' + walkRec.name + '"'), 'след "Стоп" съобщението казва името на записа: ' + await page.textContent('#toast'));
+  check(await page.isVisible('#followPanel') && await page.isVisible('[data-act="walk-gpx-done"]') && /отделен маршрут/.test(await page.textContent('#fMsg')), 'панелът след "Стоп": числата остават, копче "Свали изминатото като .gpx"');
+  await page.click('[data-act="walk-gpx-done"]');
+  check(await page.isVisible('#dlgName') && await page.inputValue('#fileName') === defName, 'панелът след "Стоп": същият прозорец за име');
+  const [wdl3] = await Promise.all([page.waitForEvent('download'), page.press('#fileName', 'Enter')]);
+  check(wdl3.suggestedFilename() === defName + '.gpx', 'панелът след "Стоп": сваля ' + wdl3.suggestedFilename());
+  const rowSel = '#routesBody tr[data-route="' + (walkRec && walkRec.id) + '"]';
+  check(!!walkRec && (await page.textContent(rowSel)).includes(walkRec.name), 'отделният запис се вижда в "Записани маршрути": ' + (walkRec && (await page.textContent(rowSel)).replace(/\s+/g, ' ')));
+  await page.click(rowSel + ' [data-rt="open"]');
+  check(await page.evaluate(id => __gpxk.S.curId === id && __gpxk.G.count === 1 && __gpxk.G.len > 0 && document.querySelector('#followPanel').hidden, walkRec && walkRec.id), 'отделният запис се отваря като маршрут с една част - ' + await page.evaluate(() => __gpxk.G.count + ' част, ' + Math.round(__gpxk.G.len) + ' м'));
+  await page.click('#routesBody tr[data-route="' + followId + '"] [data-rt="open"]');
+  check(await page.evaluate(id => __gpxk.S.curId === id, followId), 'следеният маршрут се отваря отново');
 
   // Устойчивост: запазва се и след презареждане.
   await page.waitForTimeout(700);
@@ -679,9 +735,9 @@ function barFits() {
   // Версия: в дъното и в името на кеша от sw.js.
   const verText = (await p5.textContent('#appVersion')).trim();
   const ver = (verText.match(/^\d+\.\d+\.\d+/) || [''])[0];
-  check(ver === '1.0.0' && await p5.isVisible('#appVersion') && /^Версия 1\.0\.0 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
+  check(ver === '1.0.1' && await p5.isVisible('#appVersion') && /^Версия 1\.0\.1 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
   const swCache = (() => { const ctx = { importScripts: f => vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx), addEventListener: () => {} }; ctx.self = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8') + ';this.__c = CACHE;', ctx); return ctx.__c; })();
-  check(swCache === 'gpxk-v11-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
+  check(swCache === 'gpxk-v12-1.0.1' && swCache === 'gpxk-v12-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
   const liveCaches = await p5.evaluate(() => navigator.serviceWorker.ready.then(() => new Promise(r => { const t0 = Date.now(); (function poll() { caches.keys().then(k => (k.length || Date.now() - t0 > 8000) ? r(k) : setTimeout(poll, 100)); })(); })));
   check(liveCaches.length === 1 && liveCaches[0] === swCache, 'в браузъра работникът е създал кеш ' + JSON.stringify(liveCaches));
   // Бутоните са неактивни, когато няма какво да изчистят.

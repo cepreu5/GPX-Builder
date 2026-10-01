@@ -56,6 +56,7 @@
       <button data-view="pic">Картина</button>
     </div>
     <button class="btn" data-act="center">Центрирай</button>
+    <button class="btn" data-act="walk-gpx" id="walkGpxBtn" aria-disabled="true" title="Свали изминатото дотук като .gpx - следенето продължава"><span class="walk-w">Изнеси </span>.gpx</button>
     <button class="btn danger" data-act="follow-stop">Стоп</button>
   </div>
 </header>
@@ -119,6 +120,10 @@
       <div><small>Встрани</small><b class="num" id="fOff">-</b></div>
     </div>
     <p id="fMsg" class="follow-msg">Чакам сигнал от GPS...</p>
+    <div id="walkDone" class="row follow-done" hidden>
+      <button class="btn pri" data-act="walk-gpx-done">Свали изминатото като .gpx</button>
+      <span class="muted small">записът се отваря от "Записани маршрути" и се редактира като всеки друг</span>
+    </div>
   </section>
 
   <section class="card summary">
@@ -270,6 +275,21 @@
       <button class="btn" value="cancel">Отказ</button>
       <button class="btn" type="button" data-act="pic-make-both">Свали картина + .gpx</button>
       <button class="btn pri" type="button" data-act="pic-make">Свали картината (.png)</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgName" class="dlg dlg-sm">
+  <form method="dialog" id="nameForm">
+    <h3>Име на файла</h3>
+    <div class="row name-row">
+      <input name="fname" id="fileName" type="text" autocomplete="off" spellcheck="false" aria-label="Име на файла">
+      <span class="muted small">.gpx</span>
+    </div>
+    <div class="row end">
+      <span class="muted small sp">Enter сваля, Escape затваря</span>
+      <button class="btn" type="button" id="nameCancel">Отказ</button>
+      <button class="btn pri" type="submit" value="save">Свали</button>
     </div>
   </form>
 </dialog>
