@@ -1849,7 +1849,8 @@
   var MONTHS_FULL = ['януари', 'февруари', 'март', 'април', 'май', 'юни', 'юли', 'август', 'септември', 'октомври', 'ноември', 'декември'];
   function showVersion() {
     var d = new Date(GPXK_DATE + 'T12:00:00');
-    $('#appVersion').textContent = GPXK_VERSION + (isNaN(d) ? '' : ' · ' + d.getDate() + ' ' + MONTHS_FULL[d.getMonth()] + ' ' + d.getFullYear());
+    $('#appVersion').textContent = GPXK_VERSION;
+    $('#appDate').textContent = isNaN(d) ? '' : ' · ' + d.getDate() + ' ' + MONTHS_FULL[d.getMonth()] + ' ' + d.getFullYear();
   }
 
   // ---- Тема ----
