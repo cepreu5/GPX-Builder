@@ -798,9 +798,9 @@ function barFits() {
   // Версия: в дъното и в името на кеша от sw.js.
   const verText = (await p5.textContent('#appVersion')).trim();
   const ver = (verText.match(/^\d+\.\d+\.\d+/) || [''])[0];
-  check(ver === '1.0.2' && await p5.isVisible('#appVersion') && /^Версия 1\.0\.2 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
+  check(ver === '1.0.3' && await p5.isVisible('#appVersion') && /^Версия 1\.0\.3 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
   const swCache = (() => { const ctx = { importScripts: f => vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx), addEventListener: () => {} }; ctx.self = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8') + ';this.__c = CACHE;', ctx); return ctx.__c; })();
-  check(swCache === 'gpxk-v13-1.0.2' && swCache === 'gpxk-v13-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
+  check(swCache === 'gpxk-v14-1.0.3' && swCache === 'gpxk-v14-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
   const liveCaches = await p5.evaluate(() => navigator.serviceWorker.ready.then(() => new Promise(r => { const t0 = Date.now(); (function poll() { caches.keys().then(k => (k.length || Date.now() - t0 > 8000) ? r(k) : setTimeout(poll, 100)); })(); })));
   check(liveCaches.length === 1 && liveCaches[0] === swCache, 'в браузъра работникът е създал кеш ' + JSON.stringify(liveCaches));
   // Бутоните са неактивни, когато няма какво да изчистят.
@@ -945,6 +945,129 @@ function barFits() {
   await p6.waitForFunction(() => window.__gpxk && window.__gpxk.ready);
   check(await p6.evaluate(() => document.querySelector('#followPanel').hidden && document.querySelector('#walkBar').hidden && !__gpxk.ui.lastWalk), '× на панела "Следене" маха изминатото - и след презареждане');
   await ctx6.close();
+
+  // Незавършено следене (1.0.3): автозапис в браузъра и прозорецът при отваряне.
+  const ctx7 = await browser.newContext({ viewport: { width: 390, height: 844 }, acceptDownloads: true, permissions: ['geolocation'], geolocation: { latitude: 42.5, longitude: 24.7 } });
+  const p7 = await ctx7.newPage();
+  p7.on('pageerror', e => errors.push('p7 pageerror: ' + e.message));
+  p7.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text()) && !/api\.opentopodata\.org/.test(m.text())) errors.push('p7 console: ' + m.text()); });
+  const live7 = () => p7.evaluate(() => U.DB.get('liveWalk').then(w => w ? { n: w.pts.length, name: w.name, acc: w.pts.length ? w.pts[0].length : 0 } : null));
+  async function until7(pred, ms) { const end = Date.now() + ms; for (;;) { const w = await live7(); if (pred(w)) return true; if (Date.now() > end) return false; await p7.waitForTimeout(100); } }
+  const ready7 = () => p7.waitForFunction(() => window.__gpxk && window.__gpxk.ready);
+  const routes7 = () => p7.evaluate(() => __gpxk.S.routes.length);
+  // Тръгва следене и записва n точки (по ~110 м на север една от друга).
+  async function walk7(n, lat0) {
+    await ctx7.setGeolocation({ latitude: lat0, longitude: 24.7 });
+    await p7.click('#bar [data-act="follow"]');
+    await p7.waitForFunction(() => __gpxk.ui.follower && __gpxk.ui.follower.rec.length > 0, null, { timeout: 10000 });
+    for (let i = 1; i < n; i++) {
+      await ctx7.setGeolocation({ latitude: lat0 + i * 0.001, longitude: 24.7 });
+      await p7.waitForFunction(k => __gpxk.ui.follower && __gpxk.ui.follower.rec.length > k, i, { timeout: 10000 });
+    }
+  }
+  await p7.goto(url);
+  await ready7();
+  check(await p7.evaluate(() => !document.querySelector('#dlgLive').open), 'незавършено следене: при чист браузър прозорецът не излиза');
+  await walk7(3, 42.5);
+  const t7 = Date.now();
+  await until7(w => !!w && w.n >= 3, 15000);
+  const l7 = await live7();
+  check(!!l7 && l7.n === 3 && l7.acc === 5, 'по време на следене изминатото се пише в браузъра (на всеки 10 с, с час и точност): ' + JSON.stringify(l7) + ' след ' + Math.round((Date.now() - t7) / 1000) + ' с');
+  // Прекъсване: презареждане без "Стоп".
+  const nr7 = await routes7();
+  await p7.reload();
+  await ready7();
+  await p7.waitForFunction(() => document.querySelector('#dlgLive').open, null, { timeout: 5000 }).catch(() => {});
+  const d7 = await p7.evaluate(() => ({ open: document.querySelector('#dlgLive').open, h: document.querySelector('#dlgLive h3').textContent, km: document.querySelector('#liveKm').textContent, pts: document.querySelector('#livePts').textContent, when: document.querySelector('#liveWhen').textContent, follow: !!__gpxk.ui.follower }));
+  check(d7.open && d7.h === 'Незавършено следене' && /км/.test(d7.km) && d7.pts === '3 точки' && /^Тръгнал \d+ \S+, \d+:\d\d/.test(d7.when) && !d7.follow, 'след презареждане излиза "Незавършено следене": ' + d7.km + ' · ' + d7.pts + ' · ' + d7.when);
+  const bx7 = await p7.evaluate(() => { const d = document.querySelector('#dlgLive').getBoundingClientRect(); return Array.from(document.querySelectorAll('#dlgLive [data-act], #dlgLive .dlg-x')).every(b => { const r = b.getBoundingClientRect(); return r.width > 0 && r.left >= d.left && r.right <= d.right && r.bottom <= d.bottom && r.bottom <= innerHeight; }); });
+  check(bx7, '390 px: трите копчета и × се събират в прозореца');
+  await p7.screenshot({ path: path.join(OUT, 'live-ask-390.png') });
+  // × затваря, записът остава; при следващо отваряне пита пак.
+  await p7.click('#dlgLive .dlg-x');
+  check(await p7.evaluate(() => !document.querySelector('#dlgLive').open) && (await live7() || {}).n === 3, '× затваря прозореца, записът остава');
+  await p7.reload();
+  await ready7();
+  await p7.waitForFunction(() => document.querySelector('#dlgLive').open, null, { timeout: 5000 }).catch(() => {});
+  check(await p7.evaluate(() => document.querySelector('#dlgLive').open), 'при следващо отваряне прозорецът пита пак');
+  // "Запази": отделен запис в "Записани маршрути", записът се чисти.
+  await p7.click('#dlgLive [data-act="live-save"]');
+  const s7 = await p7.evaluate(() => { const S = __gpxk.S, r = S.routes[0], t = S.tracks.find(x => x.id === r.items[0].trackId); return { open: document.querySelector('#dlgLive').open, n: S.routes.length, name: r.name, items: r.items.length, pts: t && t.pts.length, walk: t && t.walk, cur: S.curId !== r.id }; });
+  check(!s7.open && s7.n === nr7 + 1 && /^изминат /.test(s7.name) && s7.items === 1 && s7.pts === 3 && s7.walk && s7.cur, '"Запази" вкарва отделен запис "' + s7.name + '" (' + s7.pts + ' точки) в "Записани маршрути", текущият маршрут не се сменя');
+  await until7(w => !w, 3000).then(ok => check(ok, '"Запази" чисти записа на незавършеното следене'));
+  check(await p7.isVisible('#routesBody tr[data-route="' + (await p7.evaluate(() => __gpxk.S.routes[0].id)) + '"]') || (await p7.textContent('#routesBody')).includes(s7.name), 'възстановеният запис се вижда в "Записани маршрути"');
+  await p7.waitForTimeout(700);
+  await p7.reload();
+  await ready7();
+  check(await p7.evaluate(() => !document.querySelector('#dlgLive').open) && await routes7() === nr7 + 1, 'след "Запази" и презареждане прозорецът не излиза, записът в "Записани маршрути" е на място');
+  // "Изхвърли": чисти без запис.
+  await walk7(2, 42.51);
+  await p7.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  await until7(w => !!w && w.n === 2, 3000).catch(() => {});
+  check((await live7() || {}).n === 2, 'при излизане от страницата изминатото се записва веднага (2 точки)');
+  await p7.reload();
+  await ready7();
+  await p7.waitForFunction(() => document.querySelector('#dlgLive').open, null, { timeout: 5000 }).catch(() => {});
+  const nr7b = await routes7();
+  check(await p7.evaluate(() => document.querySelector('#dlgLive').open && document.querySelector('#livePts').textContent === '2 точки'), 'прозорецът излиза и при 2 точки');
+  await p7.click('#dlgLive [data-act="live-drop"]');
+  await until7(w => !w, 3000).catch(() => {});
+  check(await p7.evaluate(() => !document.querySelector('#dlgLive').open) && await routes7() === nr7b && !(await live7()), '"Изхвърли" чисти записа и не вкарва нищо в "Записани маршрути"');
+  await p7.reload();
+  await ready7();
+  check(await p7.evaluate(() => !document.querySelector('#dlgLive').open), 'след "Изхвърли" и презареждане прозорецът не излиза');
+  // "Свали .gpx": същият прозорец за име, файлът и отделният запис.
+  await walk7(4, 42.52);
+  await p7.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  await until7(w => !!w && w.n === 4, 3000).catch(() => {});
+  await p7.reload();
+  await ready7();
+  await p7.waitForFunction(() => document.querySelector('#dlgLive').open, null, { timeout: 5000 }).catch(() => {});
+  const nr7c = await routes7();
+  await p7.click('#dlgLive [data-act="live-gpx"]');
+  check(await p7.evaluate(() => document.querySelector('#dlgName').open && !document.querySelector('#dlgLive').open), '"Свали .gpx" отваря прозореца за име на файла');
+  const [d7g] = await Promise.all([p7.waitForEvent('download'), p7.press('#fileName', 'Enter')]);
+  const x7 = fs.readFileSync(await d7g.path(), 'utf8');
+  check(/^izminat-.*\.gpx$/.test(d7g.suggestedFilename()) && (x7.match(/<trkpt /g) || []).length === 4 && (x7.match(/<time>/g) || []).length >= 4 && await routes7() === nr7c + 1 && !(await live7()), '"Свали .gpx" сваля ' + d7g.suggestedFilename() + ' (4 точки с час), вкарва отделен запис и чисти записа');
+  check(await p7.evaluate(() => !document.querySelector('#walkBar').hidden && /отделен маршрут/.test(document.querySelector('#fMsg').textContent)), 'след възстановяване редът "Свали изминалото като .gpx" и панелът "Следене" са както след "Стоп"');
+  // "Стоп" чисти записа.
+  await walk7(2, 42.53);
+  await p7.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  await p7.click('#followBar [data-act="follow-stop"]');
+  await until7(w => !w, 3000).then(ok => check(ok, '"Стоп" чисти записа на незавършеното следене'));
+  await p7.reload();
+  await ready7();
+  check(await p7.evaluate(() => !document.querySelector('#dlgLive').open && !!__gpxk.ui.lastWalk), 'след "Стоп" и презареждане прозорецът не излиза, последното изминато е на място');
+  // 1 точка: прозорецът не излиза, записът се изхвърля сам.
+  await walk7(1, 42.54);
+  await p7.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  await until7(w => !!w && w.n === 1, 3000).catch(() => {});
+  check((await live7() || {}).n === 1, 'запис с 1 точка е в браузъра');
+  await p7.reload();
+  await ready7();
+  await until7(w => !w, 3000).catch(() => {});
+  check(await p7.evaluate(() => !document.querySelector('#dlgLive').open) && !(await live7()), 'при 1 точка прозорецът не излиза и записът се изхвърля сам');
+  // 0 точки: тръгнато следене без сигнал.
+  await ctx7.setGeolocation({ latitude: 42.55, longitude: 24.7 });
+  await p7.evaluate(() => { navigator.geolocation.watchPosition = () => 1; });
+  await p7.click('#bar [data-act="follow"]');
+  await until7(w => !!w && w.n === 0, 3000).catch(() => {});
+  check((await live7() || {}).n === 0, 'ново следене заменя записа веднага (0 точки)');
+  await p7.reload();
+  await ready7();
+  await until7(w => !w, 3000).catch(() => {});
+  check(await p7.evaluate(() => !document.querySelector('#dlgLive').open) && !(await live7()), 'при 0 точки прозорецът не излиза');
+  await ctx7.close();
+  // Браузър без запис (частен режим): казва го веднъж.
+  const ctx8 = await browser.newContext({ viewport: { width: 1280, height: 800 }, permissions: ['geolocation'], geolocation: { latitude: 42.5, longitude: 24.7 } });
+  await ctx8.addInitScript({ content: "Object.defineProperty(window, 'indexedDB', { value: undefined, configurable: true });" });
+  const p8 = await ctx8.newPage();
+  p8.on('pageerror', e => errors.push('p8 pageerror: ' + e.message));
+  await p8.goto(url);
+  await p8.waitForFunction(() => window.__gpxk && window.__gpxk.ready);
+  await p8.click('#bar [data-act="follow"]');
+  await p8.waitForFunction(() => /Следенето не се пази в браузъра/.test(document.querySelector('#toast').textContent), null, { timeout: 3000 }).then(() => check(true, 'без запис в браузъра: "Следенето не се пази в браузъра"'), () => check(false, 'без запис в браузъра: "Следенето не се пази в браузъра"'));
+  await ctx8.close();
 
   check(errors.length === 0, 'конзолата е чиста' + (errors.length ? ': ' + errors.join(' | ') : ''));
   await browser.close();

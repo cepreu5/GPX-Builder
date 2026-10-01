@@ -1,5 +1,5 @@
 /* GPX конструктор - следене по GPS: чете положението от устройството, записва
-   изминатия път и намира мястото по маршрута. */
+   изминатия път (ширина, дължина, височина, час, точност) и намира мястото по маршрута. */
 (function () {
   'use strict';
 
@@ -33,7 +33,8 @@
         this.watch = navigator.geolocation.watchPosition(function (pos) {
           var c = pos.coords;
           var p = [Math.round(c.latitude * 1e6) / 1e6, Math.round(c.longitude * 1e6) / 1e6,
-            c.altitude != null ? Math.round(c.altitude) : null, pos.timestamp || Date.now()];
+            c.altitude != null ? Math.round(c.altitude) : null, pos.timestamp || Date.now(),
+            c.accuracy != null ? Math.round(c.accuracy) : null];
           // Записваме само при движение над 5 м или точност, която има смисъл.
           var last = self.rec[self.rec.length - 1];
           if (!last || U.hav(last[0], last[1], p[0], p[1]) > Math.max(5, Math.min(c.accuracy || 0, 25) / 2)) self.rec.push(p);

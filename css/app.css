@@ -385,6 +385,12 @@ td .num, td.num { font-family: var(--app-mono); }
 .name-row { gap: 8px; align-items: center; margin-bottom: 12px; }
 .name-row input { flex: 1; min-width: 0; font: inherit; padding: 6px 10px; border: 1px solid var(--app-line); border-radius: var(--app-radius-sm); background: var(--app-surface); color: var(--app-ink); }
 .dlg .row .sp { flex: 1; }
+#dlgLive { position: fixed; }
+#dlgLive .dlg-x { position: absolute; top: 10px; right: 10px; }
+.live-stat { display: flex; align-items: baseline; gap: 10px; margin: 0 0 4px; }
+.live-stat b { font-size: 20px; }
+.live-stat span { color: var(--app-muted); }
+.live-when { margin: 0 0 6px; }
 .drop {
   display: flex; flex-direction: column; gap: 6px; align-items: center; text-align: center;
   border: 2px dashed var(--app-accent); border-radius: 8px; background: var(--app-accent-soft);

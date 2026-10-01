@@ -165,9 +165,12 @@
           .then(function (v) { return v && v.result !== undefined && !(v instanceof Blob) && Object.keys(v).length === 1 ? v.result : v; })
           .catch(function () { return mem[k]; });
       },
+      // Отговаря с true, ако е записано в браузъра, и с false, ако е останало само в паметта.
       set: function (k, v) {
         mem[k] = v;
-        return tx('readwrite', function (st) { if (st) st.put(v, k); return null; }).catch(function () { return null; });
+        var kept = false;
+        return tx('readwrite', function (st) { if (st) { st.put(v, k); kept = true; } return null; })
+          .then(function () { return kept; }, function () { return false; });
       },
       del: function (k) {
         delete mem[k];

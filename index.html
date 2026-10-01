@@ -290,6 +290,22 @@
   </form>
 </dialog>
 
+<dialog id="dlgLive" class="dlg dlg-sm">
+  <form method="dialog">
+    <button class="btn sm ico dlg-x" value="close" aria-label="Затвори" title="Затвори - записът остава до следващото отваряне">&times;</button>
+    <h3>Незавършено следене</h3>
+    <p class="live-stat"><b class="num" id="liveKm">0 км</b><span class="num" id="livePts">0 точки</span></p>
+    <p class="small live-when" id="liveWhen"></p>
+    <p class="muted small">Следенето прекъсна, преди да го спреш. Изминатото е запазено.</p>
+    <div class="row end">
+      <button class="btn danger" type="button" data-act="live-drop">Изхвърли</button>
+      <span class="sp"></span>
+      <button class="btn" type="button" data-act="live-gpx">Свали .gpx</button>
+      <button class="btn pri" type="button" data-act="live-save">Запази</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="dlgName" class="dlg dlg-sm">
   <form method="dialog" id="nameForm">
     <h3>Име на файла</h3>

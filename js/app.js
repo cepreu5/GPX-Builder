@@ -1726,6 +1726,7 @@
     setMode('select');
     if (!f.start()) { return; }
     ui.followTimer = setInterval(renderFollow, 15000);
+    liveStart();
   }
   function renderFollow() {
     if (!ui.follower) return;
@@ -1752,6 +1753,8 @@
     if (!f) return;
     var rec = f.stop();
     clearInterval(ui.followTimer);
+    clearInterval(ui.liveTimer);
+    U.DB.del('liveWalk');
     ui.follower = null; ui.prog = null;
     document.body.classList.remove('following');
     $('#followBar').hidden = true;
@@ -1759,29 +1762,88 @@
     $('#followPanel').hidden = !silent && rec.length < 2;
     showPic(false);
     if (rec.length >= 2) {
-      var t = { id: U.uid(), name: 'изминат ' + U.dateShort(Date.now()), title: 'изминат ' + U.date(Date.now()), color: nextColor(), pts: rec, breaks: [], wpts: [], cuts: [], visible: true, created: Date.now(), walk: true };
-      Core.prep(t);
-      S.tracks.push(t);
-      cur().walks = (cur().walks || []).concat([t.id]);
-      // Отделен запис в "Записани маршрути": една част - целият изминат трак. Текущ остава следеният маршрут.
-      var wr = newRoute(t.name);
-      wr.items = [{ type: 'part', trackId: t.id, a: 0, b: rec.length - 1, rev: false }];
-      wr.len = t.len;
-      $('#fDone').textContent = U.km(t.len);
-      ui.lastWalk = {
-        pts: rec, name: ui.followName, title: t.title, wname: wr.name, bar: true,
-        msg: 'Следенето спря. Изминатият път е записан като отделен маршрут "' + wr.name + '".',
-        stats: { done: $('#fDone').textContent, time: $('#fTime').textContent, left: $('#fLeft').textContent, off: $('#fOff').textContent }
-      };
-      U.DB.set('lastWalk', ui.lastWalk);
-      showWalk();
-      toast('Изминатият път е записан като отделен маршрут "' + wr.name + '" · ' + U.km(t.len), false, 6000);
-      analyzeNow();
-      saveNow();
+      saveWalk({
+        pts: rec, name: ui.followName, routeId: cur().id, t: Date.now(), head: 'Следенето спря.',
+        stats: { time: $('#fTime').textContent, left: $('#fLeft').textContent, off: $('#fOff').textContent }
+      });
     } else if (!silent) toast('Следенето спря. Няма записан път.');
     // Картата остава в последната посока; копчето "Север" я връща.
     ui.pos = null;
     map.redraw();
+  }
+
+  /* Изминатото като нормален трак: нов трак "изминат <дата>" в изминатите на следения
+     маршрут и отделен запис в "Записани маршрути" (една част - целият трак). Текущ остава
+     отвореният маршрут. Същият път за "Стоп" и за възстановено незавършено следене. */
+  function saveWalk(w) {
+    var rec = w.pts, when = w.t || Date.now();
+    var t = { id: U.uid(), name: 'изминат ' + U.dateShort(when), title: 'изминат ' + U.date(when), color: nextColor(), pts: rec, breaks: [], wpts: [], cuts: [], visible: true, created: Date.now(), walk: true };
+    Core.prep(t);
+    S.tracks.push(t);
+    S.routes.forEach(function (r) { if (r.id === w.routeId) r.walks = (r.walks || []).concat([t.id]); });
+    var wr = newRoute(t.name);
+    wr.items = [{ type: 'part', trackId: t.id, a: 0, b: rec.length - 1, rev: false }];
+    wr.len = t.len;
+    var st = w.stats || {};
+    ui.lastWalk = {
+      pts: rec, name: w.name, title: t.title, wname: wr.name, bar: true,
+      msg: w.head + ' Изминатият път е записан като отделен маршрут "' + wr.name + '".',
+      stats: { done: U.km(t.len), time: st.time || '-', left: st.left || '-', off: st.off || '-' }
+    };
+    U.DB.set('lastWalk', ui.lastWalk);
+    showWalk();
+    toast('Изминатият път е записан като отделен маршрут "' + wr.name + '" · ' + U.km(t.len), false, 6000);
+    analyzeNow();
+    saveNow();
+    return ui.lastWalk;
+  }
+
+  /* Незавършено следене: докато следиш, изминатото се пише в браузъра на всеки 10 с и при
+     скриване или затваряне на страницата. Пази се само едно - ново следене го заменя; чисти се
+     при "Стоп" и щом бъде запазено, свалено или изхвърлено от прозореца при отваряне. */
+  var LIVE_MS = 10000;
+  function liveStart() {
+    var f = ui.follower;
+    if (!f) return;
+    ui.liveN = 0;
+    liveWrite(f);
+    ui.liveTimer = setInterval(liveSave, LIVE_MS);
+  }
+  function liveSave() {
+    var f = ui.follower;
+    if (f && f.rec.length !== ui.liveN) liveWrite(f);
+  }
+  function liveWrite(f) {
+    ui.liveN = f.rec.length;
+    U.DB.set('liveWalk', { pts: f.rec.slice(), name: ui.followName, routeId: cur().id, t0: f.t0, saved: Date.now() }).then(function (kept) {
+      if (kept || ui.liveWarned || !ui.follower) return;
+      ui.liveWarned = true;
+      toast('Следенето не се пази в браузъра (частен режим или забранен запис). Ако страницата се затвори, изминатото ще се загуби.', true, 9000);
+    });
+  }
+  function liveAsk(lw) {
+    var d = $('#dlgLive'), pts = lw.pts, t0 = lw.t0 || pts[0][3] || lw.saved;
+    ui.live = lw;
+    $('#liveKm').textContent = U.km(U.lengthOf(pts));
+    $('#livePts').textContent = U.num(pts.length) + ' точки';
+    var dt = new Date(t0), hm = dt.getHours() + ':' + (dt.getMinutes() < 10 ? '0' : '') + dt.getMinutes();
+    var named = lw.name && lw.name !== 'Нов маршрут';
+    $('#liveWhen').textContent = 'Тръгнал ' + U.dateShort(t0) + ', ' + hm + (named ? ' · следене по „' + lw.name + '“' : '');
+    if (!d.open) { if (d.showModal) d.showModal(); else d.setAttribute('open', ''); }
+  }
+  function liveDone(act) {
+    var lw = ui.live;
+    ui.live = null;
+    if ($('#dlgLive').open) $('#dlgLive').close();
+    if (!lw) return;
+    U.DB.del('liveWalk');
+    if (act === 'drop') { toast('Незавършеното следене е изхвърлено.'); return; }
+    var pts = lw.pts, t0 = lw.t0 || pts[0][3] || lw.saved, t1 = pts[pts.length - 1][3];
+    var w = saveWalk({
+      pts: pts, name: lw.name || 'изминат', routeId: lw.routeId, t: t0, head: 'Възстановено незавършено следене.',
+      stats: { time: t1 && t0 ? U.duration(t1 - t0) : '-' }
+    });
+    if (act === 'gpx') walkGpx(w.pts, w.name, w.title);
   }
 
   /* Посоката на движение: от GPS, ако я дава при движение; иначе от последните две
@@ -1990,6 +2052,9 @@
       case 'north': northUp(); break;
       case 'walkbar-close': if (ui.lastWalk) { ui.lastWalk.bar = false; U.DB.set('lastWalk', ui.lastWalk); } showWalk(); break;
       case 'walk-forget': forgetWalk(); $('#followPanel').hidden = true; break;
+      case 'live-save': liveDone('save'); break;
+      case 'live-gpx': liveDone('gpx'); break;
+      case 'live-drop': liveDone('drop'); break;
       case 'to-panel': $('#panel').scrollIntoView({ behavior: 'smooth' }); break;
       case 'undo': undo(); break;
       case 'clear-tracks': clearTracks(); break;
@@ -2051,6 +2116,10 @@
       $('#dlgName').close();
     });
     $('#dlgName').addEventListener('close', function () { ui.nameJob = null; });
+    // × затваря прозореца "Незавършено следене" - записът остава до следващото отваряне.
+    $('#dlgLive').addEventListener('close', function () { ui.live = null; });
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') liveSave(); });
+    window.addEventListener('pagehide', function () { liveSave(); });
     $('#nameCancel').addEventListener('click', function () { $('#dlgName').close(); });
     $$('#followBar [data-view]').forEach(function (b) { b.addEventListener('click', function () { showPic(b.dataset.view === 'pic'); followBearing(); }); });
     $$('#followBar [data-orient]').forEach(function (b) { b.addEventListener('click', function () { setOrient(b.dataset.orient); }); });
@@ -2255,7 +2324,13 @@
       if (!view && S.tracks.length) fitRoute();
       return U.DB.get('lastWalk').then(function (w) {
         if (w && w.pts && w.pts.length >= 2 && !ui.follower) { ui.lastWalk = w; showWalk(); }
-      }).catch(function () { /* без последно изминато */ });
+      }).catch(function () { /* без последно изминато */ }).then(function () {
+        return U.DB.get('liveWalk');
+      }).then(function (lw) {
+        if (!lw || ui.follower) return;
+        if (!Array.isArray(lw.pts) || lw.pts.length < 2) { U.DB.del('liveWalk'); return; }
+        liveAsk(lw);
+      }).catch(function () { /* без незавършено следене */ });
     }).then(function () {
       window.__gpxk = { S: S, get A() { return A; }, get G() { return G; }, get prof() { return prof; }, map: map, ui: ui, handleFiles: handleFiles, refresh: function () { routeChanged(); }, flattenAutoGaps: flattenAutoGaps, ready: true };
     });
