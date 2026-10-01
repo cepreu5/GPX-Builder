@@ -391,6 +391,9 @@ td .num, td.num { font-family: var(--app-mono); }
   .follow-stats > div:nth-child(-n+2) { border-bottom: 1px solid var(--app-line); }
   .cutbox { width: calc(100% - 70px); left: 10px; transform: none; }
   .lib-head input { width: 100%; margin-left: 0; }
+  .mapctl.tr { gap: 4px; }
+  .mapctl.tr .seg button { padding: 5px 8px; }
+  .mapctl.tr .chk { padding: 4px 6px; gap: 4px; }
 }
 @media (max-width: 360px) {
   .route-name { min-width: 46px; }

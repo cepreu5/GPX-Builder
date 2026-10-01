@@ -200,6 +200,57 @@ function barFits() {
   await page.click('[data-mode="add"]');
   await page.mouse.click(700, 500);
   check(await page.evaluate(() => __gpxk.S.routes.find(r => r.id === __gpxk.S.curId).items.some(i => i.type === 'draw' && i.pts.length === 1)), 'Добавяне: клик слага точка');
+  // Ключ „Точки“: скрива кръгчетата и номерата на чертаните точки, избраната остава, скритите се хващат.
+  const draws = () => page.evaluate(() => { const r = __gpxk.S.routes.find(r => r.id === __gpxk.S.curId), i = r.items.findIndex(i => i.type === 'draw'); return { idx: i, n: i < 0 ? 0 : r.items[i].pts.length, pts: i < 0 ? [] : r.items[i].pts.map(p => ({ lat: p.lat, lon: p.lon })) }; });
+  const vtxNow = () => page.evaluate(() => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(() => res((__gpxk.ui.vtx || []).map(v => ({ sel: v.sel, label: v.label, x: Math.round(v.x), y: Math.round(v.y) })))))));
+  const vtc = await page.evaluate(() => { const e = document.querySelector('#vtxToggle'), l = e && e.closest('label'), r = l && l.getBoundingClientRect(); return e ? { checked: e.checked, type: e.type, text: l.textContent.trim(), inCorner: !!e.closest('.mapctl.tr'), w: r.width } : null; });
+  check(vtc && vtc.type === 'checkbox' && vtc.checked && vtc.text === 'Точки' && vtc.inCorner && vtc.w > 0, 'ключ „Точки“ горе вдясно на картата, включен по подразбиране: ' + JSON.stringify(vtc));
+  await page.mouse.click(760, 470); await page.mouse.click(820, 520);
+  let dr = await draws();
+  check(dr.n === 3, 'Добавяне: три чертани точки (' + dr.n + ')');
+  await page.evaluate(p => { const m = __gpxk.map; m.setView(p.lat, p.lon, 16); m.redraw(); }, dr.pts[1]);
+  let vx = await vtxNow();
+  check(vx.length === 3 && vx.every(v => !v.sel) && vx.map(v => v.label).join(',') === '1,2,3', 'включени: три кръгчета с номера 1, 2, 3 ' + JSON.stringify(vx.map(v => v.label)));
+  await page.screenshot({ path: path.join(OUT, 'points-on-1280.png') });
+  await page.click('#vtxToggle');
+  vx = await vtxNow();
+  check(vx.length === 0 && await page.evaluate(() => !document.querySelector('#vtxToggle').checked && JSON.parse(localStorage.getItem('gpxk.vtxShow')) === false), 'изключени: нито кръгчета, нито номера; изборът е запомнен (gpxk.vtxShow)');
+  check(await page.evaluate(() => __gpxk.G.pts.length > 0), 'линията на маршрута остава');
+  await page.screenshot({ path: path.join(OUT, 'points-off-1280.png') });
+  await page.evaluate(i => { __gpxk.ui.sel = { idx: i, pi: 1 }; __gpxk.map.redraw(); }, dr.idx);
+  vx = await vtxNow();
+  check(vx.length === 1 && vx[0].sel && vx[0].label === '2', 'изключени: избраната точка остава видима, с номера си ' + JSON.stringify(vx));
+  await page.evaluate(() => { __gpxk.ui.sel = null; __gpxk.map.redraw(); });
+  await page.waitForFunction(() => U.DB.get('collection').then(c => { const r = c && c.routes.find(x => x.id === c.curId); return !!r && r.items.some(i => i.type === 'draw' && i.pts.length === 3); }));
+  await page.reload();
+  await page.waitForFunction(() => window.__gpxk && window.__gpxk.ready);
+  dr = await draws();
+  await page.evaluate(p => { const m = __gpxk.map; m.setView(p.lat, p.lon, 16); m.redraw(); }, dr.pts[1]);
+  vx = await vtxNow();
+  check(await page.evaluate(() => !document.querySelector('#vtxToggle').checked && __gpxk.ui.vtxShow === false) && vx.length === 0 && dr.n === 3, 'след презареждане „Точки“ остава изключен и точките са скрити');
+  // Местене на скрита точка (истинско влачене).
+  const scr = i => page.evaluate(p => { const q = __gpxk.map.project(p.lat, p.lon), r = document.querySelector('#map').getBoundingClientRect(); return { x: r.left + q.x, y: r.top + q.y }; }, dr.pts[i]);
+  await page.click('[data-mode="move"]');
+  let a = await scr(1);
+  await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(a.x + 20, a.y + 15, { steps: 4 }); await page.mouse.move(a.x + 40, a.y + 30, { steps: 4 }); await page.mouse.up();
+  const dr2 = await draws();
+  check(dr2.n === 3 && (dr2.pts[1].lat !== dr.pts[1].lat || dr2.pts[1].lon !== dr.pts[1].lon) && dr2.pts[0].lat === dr.pts[0].lat, 'изключени: в „Местене“ скритата точка се хваща и мести');
+  check((await vtxNow()).length === 0, 'след местенето точките пак са скрити');
+  // Махане на скрита точка (истински клик).
+  dr = dr2;
+  await page.click('[data-mode="remove"]');
+  a = await scr(2);
+  await page.mouse.click(a.x, a.y);
+  dr = await draws();
+  check(dr.n === 2, 'изключени: в „Махане“ клик по скритата точка я маха (' + dr.n + ' точки)');
+  await page.mouse.click((await scr(1)).x, (await scr(1)).y);
+  dr = await draws();
+  check(dr.n === 1, 'махната е и втората добавена точка; остава първата');
+  await page.click('[data-mode="select"]');
+  await page.click('#vtxToggle');
+  vx = await vtxNow();
+  check(vx.length === 1 && vx[0].label === '1' && await page.evaluate(() => document.querySelector('#vtxToggle').checked && JSON.parse(localStorage.getItem('gpxk.vtxShow')) === true), 'включени отново: кръгчето с номер 1 се връща ' + JSON.stringify(vx));
+  await page.click('[data-act="fit"]');
   await page.click('[data-mode="select"]');
 
   // Износ: един .gpx с една линия.
@@ -629,7 +680,7 @@ function barFits() {
   const ver = (verText.match(/^\d+\.\d+\.\d+/) || [''])[0];
   check(ver === '1.0.0' && await p5.isVisible('#appVersion') && /^Версия 1\.0\.0 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
   const swCache = (() => { const ctx = { importScripts: f => vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx), addEventListener: () => {} }; ctx.self = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8') + ';this.__c = CACHE;', ctx); return ctx.__c; })();
-  check(swCache === 'gpxk-v9-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
+  check(swCache === 'gpxk-v10-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
   const liveCaches = await p5.evaluate(() => navigator.serviceWorker.ready.then(() => new Promise(r => { const t0 = Date.now(); (function poll() { caches.keys().then(k => (k.length || Date.now() - t0 > 8000) ? r(k) : setTimeout(poll, 100)); })(); })));
   check(liveCaches.length === 1 && liveCaches[0] === swCache, 'в браузъра работникът е създал кеш ' + JSON.stringify(liveCaches));
   // Бутоните са неактивни, когато няма какво да изчистят.

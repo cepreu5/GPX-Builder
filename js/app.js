@@ -29,7 +29,7 @@
   var prof = null;  // профил на текущия маршрут
   var ui = {
     mode: 'select', hover: null, hl: null, cut: null, drawTarget: null, sel: null,
-    undo: [], base: U.LS.get('base', 'sat'), labels: U.LS.get('labels', true),
+    undo: [], base: U.LS.get('base', 'sat'), labels: U.LS.get('labels', true), vtxShow: U.LS.get('vtxShow', true),
     grade: U.LS.get('grade', true), fold: U.LS.get('fold', {}), follower: null, pos: null, prog: null, followView: 'map',
     autoCenter: true, pin: null, profHover: null, picUrl: null, picMeta: null
   };
@@ -518,6 +518,8 @@
     }
 
     // 5. Чертаните точки.
+    // Ключът „Точки“ ги скрива всичките, освен избраната; хващат се и скрити.
+    ui.vtx = [];
     if (G && !following) {
       var vn = 0;
       G.items.forEach(function (g) {
@@ -526,6 +528,8 @@
           vn++;
           var q = pr(p.lat, p.lon);
           var sel = ui.sel && ui.sel.idx === g.idx && ui.sel.pi === pi;
+          if (!ui.vtxShow && !sel) return;
+          ui.vtx.push({ x: q[0], y: q[1], sel: !!sel, label: p.name || (m.zoom >= 15 ? String(vn) : '') });
           ctx.beginPath(); ctx.arc(q[0], q[1], sel ? 8 : 5.5, 0, Math.PI * 2);
           ctx.fillStyle = sel ? C.accent : C.casing; ctx.fill();
           ctx.lineWidth = 2.5; ctx.strokeStyle = itemColor(g.link ? g.colorNo : g.no); ctx.stroke();
@@ -1920,6 +1924,8 @@
       b.addEventListener('click', function () { ui.base = b.dataset.base; U.LS.set('base', ui.base); applyLayers(); });
     });
     $('#labelsToggle').addEventListener('change', function (e) { ui.labels = e.target.checked; U.LS.set('labels', ui.labels); applyLayers(); });
+    $('#vtxToggle').checked = ui.vtxShow;
+    $('#vtxToggle').addEventListener('change', function (e) { ui.vtxShow = e.target.checked; U.LS.set('vtxShow', ui.vtxShow); map.redraw(); });
     $('#gradeToggle').checked = ui.grade;
     $('#gradeToggle').addEventListener('change', function (e) { ui.grade = e.target.checked; U.LS.set('grade', ui.grade); drawProfile(); });
     // Отклонение: до 3 цифри (0-999 м); прилага се с Enter или при излизане от полето.
