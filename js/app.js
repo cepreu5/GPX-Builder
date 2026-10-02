@@ -2662,6 +2662,38 @@
     window.addEventListener('resize', U.debounce(function () { drawProfile(); if (!$('#picView').hidden) picFit(); }, 150));
   }
 
+  /* Групата горе вляво ("↓", "Лента", "Следене") е в редица, когато се събира вляво от реда горе вдясно
+     (с 8 px запас), иначе в стълбичка. Мери се винаги в редица (класът е махнат), за да не трепти. */
+  function layoutTopLeft() {
+    var b = document.body, tl = $('.maptl'), tr = $('.mapctl.tr');
+    b.classList.remove('maptl-stack');
+    var r = tl.getBoundingClientRect(), room = tr.getBoundingClientRect().left - r.left - 8;
+    if (r.width > room) b.classList.add('maptl-stack');
+  }
+  function fitTopLeft() {
+    var queued = false, again = function () {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(function () { queued = false; layoutTopLeft(); });
+    };
+    layoutTopLeft();
+    window.addEventListener('resize', again);
+    window.addEventListener('orientationchange', again);
+    // Лентата скрита/показана и следене (класове на body); "Точки" и "Север" разширяват реда вдясно,
+    // а надписът "Следене / Стоп" - групата. Наблюдават се само размери, които не зависят от подредбата.
+    var state = function () { var c = document.body.classList; return c.contains('bar-hidden') + ',' + c.contains('following'); }, was = state();
+    new MutationObserver(function () {
+      var now = state();
+      if (now !== was) { was = now; again(); }
+    }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    new MutationObserver(again).observe($('.mapctl.tr'), { attributes: true, subtree: true, attributeFilter: ['hidden'] });
+    if (window.ResizeObserver) {
+      var ro = new ResizeObserver(again);
+      ro.observe($('.mapctl.tr')); ro.observe($('#followMapBtn'));
+    }
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(again);
+  }
+
   // ---- Старт ----
   function init() {
     refreshColors();
@@ -2678,6 +2710,7 @@
     var barEl = $('#bar'), barH = function () { document.documentElement.style.setProperty('--bar-h', Math.round(barEl.getBoundingClientRect().height) + 'px'); };
     if (window.ResizeObserver) new ResizeObserver(barH).observe(barEl); else window.addEventListener('resize', barH);
     barH();
+    fitTopLeft();
     var tileErrs = 0, warned = false;
     map.on('tileerror', function () {
       tileErrs++;
