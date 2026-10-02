@@ -9,7 +9,7 @@ const { chromium } = require(process.env.PW || '/opt/nvm/versions/node/v22.23.2/
 const ROOT = path.resolve(__dirname, '..');
 const OUT = path.join(__dirname, 'out');
 fs.mkdirSync(OUT, { recursive: true });
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.jpg': 'image/jpeg' };
 const server = http.createServer((req, res) => {
   let p = decodeURIComponent(req.url.split('?')[0]);
   if (p.endsWith('/')) p += 'index.html';
@@ -89,6 +89,17 @@ function barFits() {
   const url = 'http://127.0.0.1:' + server.address().port + '/';
   // UTF-8 среда, за да пази браузърът имената на файлове на кирилица (без нея ги сваля като "download").
   const browser = await chromium.launch({ args: ['--num-raster-threads=4'], env: Object.assign({}, process.env, { LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' }) });
+  // Началният екран излиза само при първо пускане; проверките извън него тръгват като "вече видян".
+  // newContext({ splash: true }) - чисто устройство, началният екран излиза.
+  const rawContext = browser.newContext.bind(browser);
+  browser.newContext = async (o = {}) => {
+    const { splash, ...rest } = o;
+    const c = await rawContext(rest);
+    if (!splash) await c.addInitScript(() => { try { if (localStorage.getItem('gpxk.splash') == null) localStorage.setItem('gpxk.splash', 'true'); } catch (e) { /* */ } });
+    return c;
+  };
+  // След "Стоп" излиза прозорецът "Запис на изминатото" (записът е вече направен суров); "Отказ" го затваря.
+  const shutWalk = async pg => { await pg.waitForFunction(() => document.querySelector('#dlgWalk').open, null, { timeout: 3000 }).catch(() => {}); await pg.evaluate(() => { if (document.querySelector('#dlgWalk').open) document.querySelector('#walkCancel').click(); }); };
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, acceptDownloads: true, permissions: ['geolocation'], geolocation: { latitude: 42.5021, longitude: 24.6985 } });
   await ctx.addInitScript({ content: 'window.inView = ' + inView.toString() });
   const page = await ctx.newPage();
@@ -451,6 +462,9 @@ function barFits() {
   const followId = await page.evaluate(() => __gpxk.S.curId);
   const rotStop = (await page.evaluate(rotState)).rot;
   await page.click('#bar [data-act="follow"]');
+  const wd0 = await page.evaluate(() => ({ open: document.querySelector('#dlgWalk').open, name: document.querySelector('#walkName').value, side: document.querySelector('#smSide').checked, dense: document.querySelector('#smDense').checked, pts: document.querySelector('#smPts').textContent, n: __gpxk.ui.lastWalk && __gpxk.ui.lastWalk.pts.length, rname: (__gpxk.S.routes.find(r => r.id === (__gpxk.ui.lastWalk || {}).routeId) || {}).name }));
+  check(wd0.open && wd0.name === wd0.rname && !wd0.side && !wd0.dense && wd0.pts === wd0.n + ' от ' + wd0.n + ' (махнати 0)', 'след "Стоп" излиза "Запис на изминатото": името на записа, двете отметки изключени - ' + JSON.stringify(wd0));
+  await shutWalk(page);
   const fbOff = await page.evaluate(() => Array.from(document.querySelectorAll('[data-act="follow"]')).map(b => b.textContent.trim() + (b.classList.contains('danger') ? '!' : '') + '/' + b.getAttribute('aria-pressed')));
   check(!await page.evaluate(() => !!__gpxk.ui.follower) && fbOff.every(x => x === 'Следене/false'), '"Стоп" спира следенето и копчето пак пише "Следене": ' + fbOff.join(' '));
   check(await page.evaluate(n => __gpxk.S.tracks.length === n + 1 && /изминат/.test(__gpxk.S.tracks[n].name), nt), 'изминатият път е записан като нов трак');
@@ -900,9 +914,9 @@ function barFits() {
   // Версия: в дъното и в името на кеша от sw.js.
   const verText = (await p5.textContent('#appVersion')).trim();
   const ver = (verText.match(/^\d+\.\d+\.\d+/) || [''])[0];
-  check(ver === '1.0.7' && await p5.isVisible('#appVersion') && /^Версия 1\.0\.7 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
+  check(ver === '1.1.0' && await p5.isVisible('#appVersion') && /^Версия 1\.1\.0 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
   const swCache = (() => { const ctx = { importScripts: f => vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx), addEventListener: () => {} }; ctx.self = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8') + ';this.__c = CACHE;', ctx); return ctx.__c; })();
-  check(swCache === 'gpxk-v18-1.0.7' && swCache === 'gpxk-v18-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
+  check(swCache === 'gpxk-v19-1.1.0' && swCache === 'gpxk-v19-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
   const liveCaches = await p5.evaluate(() => navigator.serviceWorker.ready.then(() => new Promise(r => { const t0 = Date.now(); (function poll() { caches.keys().then(k => (k.length || Date.now() - t0 > 8000) ? r(k) : setTimeout(poll, 100)); })(); })));
   check(liveCaches.length === 1 && liveCaches[0] === swCache, 'в браузъра работникът е създал кеш ' + JSON.stringify(liveCaches));
   // Бутоните са неактивни, когато няма какво да изчистят.
@@ -1027,6 +1041,7 @@ function barFits() {
   check(fab6.shown && fab6.text === 'Стоп' && fab6.danger && fab6.pressed === 'true' && !fab6.overTr && !fab6.overHandle && fab6.left >= 0, '390x844, скрита лента: "Стоп" върху картата, до "Лента" - ' + JSON.stringify(fab6));
   await p6.screenshot({ path: path.join(OUT, 'follow-stop-map-390.png') });
   await p6.click('#followMapBtn');
+  await shutWalk(p6);
   const fab6b = await p6.evaluate(fabState);
   check(await p6.evaluate(() => !__gpxk.ui.follower && !!__gpxk.ui.lastWalk) && fab6b.text === 'Следене' && !fab6b.danger && fab6b.pressed === 'false', '390x844: "Стоп" върху картата спира следенето, копчето пише "Следене"');
   await p6.click('#barHandle');
@@ -1290,6 +1305,7 @@ function barFits() {
   await p9.waitForFunction(() => !!__geo.held, null, { timeout: 3000 }).catch(() => {});
   check((await st9()).awake === 'Екранът няма да заспива, докато следиш.', 'след отказ: при следващото връщане ключалката се иска пак и се държи');
   await p9.click('#bar [data-act="follow"]');
+  await shutWalk(p9);
   check(await p9.evaluate(() => !__geo.held && document.querySelector('#fAwake').hidden), '"Стоп" пуска ключалката и маха реда за екрана');
   const e9 = await p9.evaluate(() => { const t = __gpxk.S.tracks[__gpxk.S.tracks.length - 1]; return { walk: t.walk, n: t.pts.length, len: t.len }; });
   check(e9.walk && e9.n === g9.n && e9.n > c9.n && e9.len > jump9, 'след "Стоп" изминатият трак е един, със следата през паузата (' + e9.n + ' точки, ' + Math.round(e9.len) + ' м)');
@@ -1390,6 +1406,7 @@ function barFits() {
   check(pxOk.n > 10 && pxOk.n2 > pxOk.n * 0.6 && pxOk.n1 === 0, 'измерената крачка (16 м) си остава зелена (' + cols.walked + ') - ' + JSON.stringify(pxOk));
   check(await p10.evaluate(() => !/дупка/.test(document.querySelector('#partsList').textContent + document.querySelector('.stats').textContent)), 'дупката е само цвят: без ред в числата и без значка в списъка с части');
   await p10.click('#bar [data-act="follow"]');
+  await shutWalk(p10);
   // След "Стоп": записът на изминатото, отворен като маршрут - дупката е кехлибарена и на картата, и в "Картина" (.png).
   const cur10 = await p10.evaluate(() => __gpxk.S.curId);
   const wr10 = await p10.evaluate(() => { const S = __gpxk.S, t = S.tracks[S.tracks.length - 1]; return S.routes.find(r => r.items.length === 1 && r.items[0].trackId === t.id).id; });
@@ -1438,6 +1455,7 @@ function barFits() {
   check(near(ins10g, 42.52, 24.71) && near(ins10g, 42.53, 24.71) && near(ins10g, 42.53, 24.70) && ins10g.every(p => p.off < 1) && tUp(g10.add), 'затворен кръг: следата върви напред през трите завоя (' + ins10g.length + ' междинни точки), не назад');
   check(Math.abs(g10.len - f10.len - (loopLen - back10)) < 10, 'затворен кръг: изминати +' + Math.round(g10.len - f10.len) + ' м = обиколката ' + Math.round(loopLen) + ' без ' + Math.round(back10) + ' м назад');
   await p10.click('#bar [data-act="follow"]');
+  await shutWalk(p10);
   const h10 = await p10.evaluate(() => { const S = __gpxk.S, t = S.tracks[S.tracks.length - 1], w = S.routes.find(r => r.items && r.items.length === 1 && r.items[0].trackId === t.id); return { walk: t.walk, n: t.pts.length, len: t.len, rec: !!w }; });
   check(h10.walk && h10.n === g10.n && Math.abs(h10.len - g10.len) < 1 && h10.rec, 'след "Стоп" изминатият трак и записът в "Записани маршрути" носят следата (' + h10.n + ' точки, ' + Math.round(h10.len) + ' м)');
   await ctx10.close();
@@ -1498,6 +1516,146 @@ function barFits() {
   const en = await eleCase(false);
   check(!en.r.prof && en.r.ins.length > 5 && en.r.ins.every((p, i) => p.ele === en.straight[i]) && en.r.ins.some(p => p.ele > 100 && p.ele < 160),
     'без профил и без височина в трака: права линия между 100 и 160 м (' + en.r.ins.map(p => p.ele).join(', ') + ')');
+
+  // 1.1.0 - CX Tracks: начален екран, "Точка" при следене, прозорецът "Запис на изминатото" (изглаждане).
+  async function cxCase(W, H) {
+    const tag = W + 'x' + H;
+    const ctx = await browser.newContext({ splash: true, viewport: { width: W, height: H }, acceptDownloads: true, permissions: ['geolocation'], geolocation: { latitude: 42.5, longitude: 24.7 } });
+    await ctx.addInitScript({ content: GEO_INIT });
+    const pg = await ctx.newPage();
+    pg.on('pageerror', e => errors.push('cx ' + tag + ' pageerror: ' + e.message));
+    pg.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text()) && !/api\.opentopodata\.org/.test(m.text())) errors.push('cx ' + tag + ' console: ' + m.text()); });
+    const ext = [];
+    pg.on('request', r => { if (/splash/.test(r.url()) && !r.url().startsWith(url)) ext.push(r.url()); });
+    const t0 = Date.now();
+    await pg.goto(url);
+    await pg.waitForFunction(() => window.__gpxk && window.__gpxk.ready);
+    await pg.waitForFunction(() => { const i = document.querySelector('#splash img'); return i && i.complete; }, null, { timeout: 3000 }).catch(() => {});
+    const sp = await pg.evaluate(() => { const s = document.querySelector('#splash'), i = s && s.querySelector('img'), r = s && s.getBoundingClientRect(), h = s && s.querySelector('h1').getBoundingClientRect();
+      return s && { shown: getComputedStyle(s).display !== 'none' && r.width === innerWidth && r.height === innerHeight, h1: s.querySelector('h1').textContent, sub: s.querySelector('.splash-t p').textContent, hint: s.querySelector('.splash-hint').textContent,
+        img: i.naturalWidth, src: i.currentSrc, h1In: h.left >= 0 && h.right <= innerWidth, title: document.title, logo: document.querySelector('.logo-t').textContent, seen: localStorage.getItem('gpxk.splash') }; });
+    check(!!sp && sp.shown && sp.h1 === 'CX Tracks' && sp.sub === 'Маршрути и тракове' && /Натисни/.test(sp.hint) && sp.img === 1280 && sp.src === url + 'assets/splash.jpg' && sp.h1In && !ext.length,
+      tag + ': първо пускане - начален екран на цял екран, надпис "CX Tracks" върху локалната снимка ' + JSON.stringify(sp && { img: sp.img, src: sp.src }));
+    check(/CX Tracks$/.test(sp.title) && sp.logo === 'CX Tracks' && sp.seen === 'true', tag + ': името CX Tracks в заглавието ("' + sp.title + '") и логото, началният екран се помни');
+    await pg.screenshot({ path: path.join(OUT, 'splash-' + W + '.png') });
+    if (W > 600) {
+      await pg.mouse.click(W / 2, H / 2);
+      await pg.waitForFunction(() => !document.querySelector('#splash'), null, { timeout: 2000 }).then(() => check(true, tag + ': натискане маха началния екран'), () => check(false, tag + ': натискане маха началния екран'));
+    } else {
+      await pg.waitForFunction(() => !document.querySelector('#splash'), null, { timeout: 6000 }).catch(() => {});
+      const dt = Date.now() - t0;
+      check(await pg.evaluate(() => !document.querySelector('#splash')) && dt >= 2500, tag + ': началният екран изчезва сам след 3 с (' + (dt / 1000).toFixed(1) + ' с)');
+    }
+    check(await pg.isVisible('.foot .foot-name') && (await pg.textContent('.foot .foot-name')).includes('CX Tracks'), tag + ': дъното носи името CX Tracks');
+    await pg.reload();
+    await pg.waitForFunction(() => window.__gpxk && window.__gpxk.ready);
+    check(await pg.evaluate(() => !document.querySelector('#splash') && document.documentElement.classList.contains('splash-seen')), tag + ': след презареждане началният екран не излиза пак');
+
+    // "Точка": маршрут, следене без сигнал, после с.
+    await pg.setInputFiles('#fileInput', writeGpx('tochka-' + W, line(42.5, 24.7, 42.5, 24.71, 60)));
+    await pg.waitForFunction(() => __gpxk.S.tracks.length === 1);
+    await useTrack(pg);
+    await pg.evaluate(() => { __geo.mute = true; });
+    await pg.click('#bar [data-act="follow"]');
+    const nb = await pg.evaluate(() => { const b = document.querySelector('#walkPtBtn'), r = b.getBoundingClientRect(); return { dis: b.getAttribute('aria-disabled'), title: b.title, shown: r.width > 0 && r.right <= innerWidth + 0.5, op: +getComputedStyle(b).opacity }; });
+    check(nb.shown && nb.dis === 'true' && /Няма сигнал/.test(nb.title) && nb.op < 0.7, tag + ': без сигнал копчето "Точка" е бледо и казва "няма сигнал" ' + JSON.stringify(nb));
+    await pg.click('#walkPtBtn', { force: true });
+    check(await pg.evaluate(() => !document.querySelector('#dlgPoint').open && __gpxk.ui.follower.wpts.length === 0 && /Няма сигнал от GPS - точката не е сложена/.test(document.querySelector('#toast').textContent)), tag + ': без сигнал "Точка" не слага точка на сляпо');
+    // Без сигнал нищо не е записано - "Стоп" не пита; после следене със сигнал.
+    await pg.click('#bar [data-act="follow"]');
+    check(await pg.evaluate(() => !__gpxk.ui.follower && !document.querySelector('#dlgWalk').open), tag + ': "Стоп" без записан път не отваря прозореца за запис');
+    await pg.evaluate(() => { __geo.mute = false; });
+    await pg.click('#bar [data-act="follow"]');
+    // Ходене на изток по ~8 м с трептене до 2,5 м встрани (за изглаждането).
+    const k = 1 / 111320, dx = 8 / (111320 * Math.cos(42.5 * Math.PI / 180));
+    const walkTo = async (i0, i1) => { for (let i = i0; i < i1; i++) {
+      await ctx.setGeolocation({ latitude: 42.5 + (i % 2 ? 2.5 : -2.5) * k, longitude: 24.7 + i * dx, accuracy: 5 });
+      await pg.waitForFunction(n => __gpxk.ui.follower.rec.length >= n, i + 1, { timeout: 3000 }).catch(() => {});
+    } };
+    await walkTo(0, 12);
+    check(await pg.getAttribute('#walkPtBtn', 'aria-disabled') === 'false', tag + ': със сигнал "Точка" е активно');
+    await pg.click('#walkPtBtn');
+    const pd = await pg.evaluate(() => ({ open: document.querySelector('#dlgPoint').open, ph: document.querySelector('#walkPtName').placeholder, focus: document.activeElement && document.activeElement.id, where: document.querySelector('#walkPtWhere').textContent }));
+    check(pd.open && pd.ph === 'Точка 1' && pd.focus === 'walkPtName' && /точност/.test(pd.where), tag + ': "Точка" пита за име веднага (празно - "Точка 1") ' + JSON.stringify(pd));
+    if (W < 600) {
+      const fit = await pg.evaluate(() => { const r = document.querySelector('#dlgPoint').getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; });
+      check(fit, tag + ': прозорецът "Точка" се събира на екрана');
+    }
+    await pg.screenshot({ path: path.join(OUT, 'point-dlg-' + W + '.png') });
+    const recN = await pg.evaluate(() => __gpxk.ui.follower.rec.length);
+    await pg.fill('#walkPtName', 'Извор');
+    await pg.press('#walkPtName', 'Enter');
+    await walkTo(12, 24);
+    await pg.click('#walkPtBtn');
+    await pg.press('#walkPtName', 'Enter');
+    await walkTo(24, 30);
+    // Отказ не слага точка.
+    await pg.click('#walkPtBtn');
+    await pg.click('#walkPtCancel');
+    const wp = await pg.evaluate(() => ({ w: __gpxk.ui.follower.wpts.map(w => w.name + '@' + w.lon.toFixed(5)), follow: !!__gpxk.ui.follower, open: document.querySelector('#dlgPoint').open,
+      rows: Array.from(document.querySelectorAll('#pointsList li.wpt-row .pname')).map(i => i.value), cnt: document.querySelector('#ptsCount').textContent }));
+    check(wp.follow && !wp.open && wp.w.length === 2 && /^Извор@/.test(wp.w[0]) && /^Точка 2@/.test(wp.w[1]) && wp.rows.join('|') === 'Извор|Точка 2' && wp.cnt === '(2)', tag + ': две точки при следене ("Извор" и празно = "Точка 2"), в списъка "Точки"; "Отказ" не слага; следенето продължава ' + JSON.stringify(wp));
+    check(recN >= 11, tag + ': следенето записва, докато прозорецът е отворен (' + recN + ' положения)');
+    // Положението на точката - последното от GPS.
+    const wpPos = await pg.evaluate(() => { const w = __gpxk.ui.follower.wpts[0]; return [w.lat, w.lon, w.time > 0]; });
+    check(Math.abs(wpPos[1] - (24.7 + 11 * dx)) < 1e-5 && wpPos[2], tag + ': точката е на последното положение от GPS ' + JSON.stringify(wpPos));
+    // "Изнеси .gpx" при следене носи точките като <wpt>.
+    await pg.click('#walkGpxBtn');
+    const [dlw] = await Promise.all([pg.waitForEvent('download'), pg.press('#fileName', 'Enter')]);
+    const fw = path.join(OUT, 'cx-walk-' + W + '.gpx'); await dlw.saveAs(fw);
+    const xw = fs.readFileSync(fw, 'utf8');
+    check(/creator="CX Tracks"/.test(xw) && (xw.match(/<wpt /g) || []).length === 2 && /<name>Извор<\/name><\/wpt>/.test(xw) && /<name>Точка 2<\/name><\/wpt>/.test(xw), tag + ': .gpx при следене: creator="CX Tracks" и двете точки като <wpt>');
+    await pg.screenshot({ path: path.join(OUT, 'follow-point-' + W + '.png') });
+
+    // "Стоп" - прозорецът "Запис на изминатото".
+    await pg.click('#bar [data-act="follow"]');
+    await pg.waitForFunction(() => document.querySelector('#dlgWalk').open, null, { timeout: 3000 }).catch(() => {});
+    const rawN = await pg.evaluate(() => __gpxk.ui.lastWalk.pts.length);
+    const d1 = await pg.evaluate(() => ({ open: document.querySelector('#dlgWalk').open, pts: document.querySelector('#smPts').textContent, len: document.querySelector('#smLen').textContent, side: document.querySelector('#smSide').checked, dense: document.querySelector('#smDense').checked, name: document.querySelector('#walkName').value }));
+    check(d1.open && !d1.side && !d1.dense && d1.pts === rawN + ' от ' + rawN + ' (махнати 0)' && /км → .*км/.test(d1.len) && /^изминат/.test(d1.name), tag + ': "Запис на изминатото": отметките изключени, суровата следа ' + JSON.stringify(d1));
+    await pg.check('#smSide');
+    const d2 = await pg.evaluate(() => ({ pts: document.querySelector('#smPts').textContent, len: document.querySelector('#smLen').textContent }));
+    const m2 = d2.pts.match(/^(\d+) от (\d+) \(махнати (\d+)\)$/);
+    check(!!m2 && +m2[2] === rawN && +m2[1] < rawN / 2 && +m2[1] + +m2[3] === rawN, tag + ': "Изглаждане" веднага казва колко точки остават: ' + d2.pts + ' · ' + d2.len);
+    await pg.check('#smDense');
+    const d3 = await pg.evaluate(() => document.querySelector('#smPts').textContent);
+    await pg.uncheck('#smDense');
+    const d4 = await pg.evaluate(() => document.querySelector('#smPts').textContent);
+    check(/^\d+ от \d+/.test(d3) && d4 === d2.pts, tag + ': "Гъсти точки" се добавя и маха без загуба на суровата следа (' + d3 + ' / ' + d4 + ')');
+    if (W < 600) {
+      const fit = await pg.evaluate(() => { const d = document.querySelector('#dlgWalk').getBoundingClientRect(), b = ['#walkCancel', '#walkDl', '#walkOk'].map(s => document.querySelector(s).getBoundingClientRect());
+        return d.left >= 0 && d.right <= innerWidth && d.top >= 0 && d.bottom <= innerHeight && b.every(r => r.width > 0 && r.right <= d.right && r.bottom <= d.bottom); });
+      check(fit, tag + ': прозорецът "Запис на изминатото" и трите копчета се събират на екрана');
+    }
+    await pg.screenshot({ path: path.join(OUT, 'walk-save-' + W + '.png') });
+    await pg.fill('#walkName', 'Сутрешно ' + W);
+    const [dls] = await Promise.all([pg.waitForEvent('download'), pg.click('#walkDl')]);
+    const fs2 = path.join(OUT, 'cx-smooth-' + W + '.gpx'); await dls.saveAs(fs2);
+    const xs = fs.readFileSync(fs2, 'utf8');
+    check(dls.suggestedFilename() === 'Сутрешно ' + W + '.gpx' && (xs.match(/<trkpt /g) || []).length === +m2[1] && (xs.match(/<wpt /g) || []).length === 2 && /<time>/.test(xs), tag + ': "Свали .gpx" от прозореца сваля изгладеното (' + (xs.match(/<trkpt /g) || []).length + ' точки, с часове) и точките: ' + dls.suggestedFilename());
+    check(await pg.evaluate(() => document.querySelector('#dlgWalk').open), tag + ': след "Свали .gpx" прозорецът остава отворен');
+    await pg.click('#walkOk');
+    const sv = await pg.evaluate(() => { const S = __gpxk.S, lw = __gpxk.ui.lastWalk, t = S.tracks.find(x => x.id === lw.trackId), r = S.routes.find(x => x.id === lw.routeId);
+      return { open: document.querySelector('#dlgWalk').open, n: t.pts.length, len: t.len, b: r.items[0].b, name: r.name, wpts: t.wpts.map(w => w.name), lw: lw.pts.length, gaps: Core.walkGaps(t.pts).length,
+        row: (document.querySelector('#routesBody tr[data-route="' + r.id + '"]') || {}).textContent || '' }; });
+    check(!sv.open && sv.n === +m2[1] && sv.lw === sv.n && Math.abs(sv.b - sv.len) < 0.01 && sv.name === 'Сутрешно ' + W && sv.wpts.join('|') === 'Извор|Точка 2' && sv.gaps === 0 && sv.row.includes('Сутрешно'),
+      tag + ': "Запази" записва изгладеното под новото име в "Записани маршрути", с точките, без лъжливи дупки ' + JSON.stringify(Object.assign({}, sv, { row: undefined })));
+    // Записът, отворен като маршрут: износът носи точките като спирки.
+    await pg.evaluate(() => { const lw = __gpxk.ui.lastWalk; document.querySelector('#routesBody tr[data-route="' + lw.routeId + '"] [data-rt="open"]').click(); });
+    await pg.waitForFunction(() => __gpxk.S.curId === __gpxk.ui.lastWalk.routeId, null, { timeout: 2000 }).catch(() => {});
+    const op = await pg.evaluate(() => ({ cur: __gpxk.S.curId === __gpxk.ui.lastWalk.routeId, rows: Array.from(document.querySelectorAll('#pointsList li.wpt-row .pname')).map(i => i.value) }));
+    check(op.cur && op.rows.join('|') === 'Извор|Точка 2', tag + ': отвореният запис показва точките в списъка "Точки" ' + JSON.stringify(op));
+    if (op.cur) {
+      await pg.evaluate(() => document.querySelector('#bar [data-act="export-gpx"]').click());
+      const [dle] = await Promise.all([pg.waitForEvent('download'), pg.press('#fileName', 'Enter')]);
+      const fe = path.join(OUT, 'cx-record-' + W + '.gpx'); await dle.saveAs(fe);
+      const xe = fs.readFileSync(fe, 'utf8');
+      check((xe.match(/<wpt /g) || []).length === 2 && /creator="CX Tracks"/.test(xe), tag + ': износът на записа носи двете точки като спирки');
+    }
+    await ctx.close();
+  }
+  await cxCase(1280, 800);
+  await cxCase(390, 844);
 
   check(errors.length === 0, 'конзолата е чиста' + (errors.length ? ': ' + errors.join(' | ') : ''));
   await browser.close();

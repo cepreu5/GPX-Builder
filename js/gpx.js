@@ -1,4 +1,4 @@
-/* GPX конструктор - четене и писане на GPX. */
+/* CX Tracks - четене и писане на GPX. */
 (function () {
   'use strict';
 
@@ -85,7 +85,7 @@
     var now = new Date().toISOString();
     var lines = [];
     lines.push('<?xml version="1.0" encoding="UTF-8"?>');
-    lines.push('<gpx version="1.1" creator="GPX конструктор" xmlns="http://www.topografix.com/GPX/1/1" ' +
+    lines.push('<gpx version="1.1" creator="CX Tracks" xmlns="http://www.topografix.com/GPX/1/1" ' +
       'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ' +
       'xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">');
     lines.push('  <metadata><name>' + x(name) + '</name><time>' + now + '</time></metadata>');

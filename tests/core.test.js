@@ -448,8 +448,18 @@ console.log('общ участък OK');
   [3, 4, 5, 6].forEach(function (j) { assert.ok(g2.indexOf(gap[j]) >= 0, 'точка ' + j + ' около дупката остава'); });
   assert.strictEqual(Core.walkGaps(g2).length, 1, 'дупката си е една');
   assert.ok(g2.length < gap.length, 'гъстите по ~1,6 м извън дупката се махат');
-  // Внесен трак без точност - нищо не се маха.
-  var plain = pts.map(function (p) { return p.slice(0, 4); });
-  assert.strictEqual(Core.smoothWalk(plain, { side: true, dense: true }).length, plain.length);
+  // Трак без поле за точност - точките се броят за измерени: изглажда се, без отрязъци над 40 м.
+  var plain = pts.map(function (p) { return p.slice(0, 4); }), ps = Core.smoothWalk(plain, { side: true });
+  assert.ok(ps.length < plain.length / 5);
+  for (i = 1; i < ps.length; i++) assert.ok(U.hav(ps[i - 1][0], ps[i - 1][1], ps[i][0], ps[i][1]) <= 40, 'без отрязък над 40 м');
+  // Следене по маршрут: между всеки две измерени има вмъкнати точки на маршрута (празна точност) - и те се изглаждат.
+  var onr = [];
+  for (i = 0; i <= 100; i++) {
+    onr.push(m(42.5 + (i % 2 ? 2 : -2) * k, 24.7 + i * 4 * dx, 5, 1000 * i));
+    if (i < 100) onr.push(m(42.5, 24.7 + (i * 4 + 3) * dx, null, 1000 * i + 500));
+  }
+  var os = Core.smoothWalk(onr, { side: true });
+  assert.ok(os.length < onr.length / 4, 'по маршрут: ' + os.length + ' от ' + onr.length);
+  assert.deepStrictEqual(Core.walkGaps(os), [], 'по маршрут: без лъжливи дупки');
   console.log('smoothWalk: OK (' + pts.length + ' → изглаждане ' + side.length + ', гъсти ' + dense.length + ', двете ' + both.length + ')');
 })();

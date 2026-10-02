@@ -1,5 +1,6 @@
-/* GPX конструктор - следене по GPS: чете положението от устройството, записва
-   изминатия път (ширина, дължина, височина, час, точност) и намира мястото по маршрута. */
+/* CX Tracks - следене по GPS: чете положението от устройството, записва
+   изминатия път (ширина, дължина, височина, час, точност), точките от копчето "Точка"
+   и намира мястото по маршрута. */
 (function () {
   'use strict';
 
@@ -12,6 +13,7 @@
     this.cb = cb;
     this.watch = null;
     this.rec = [];
+    this.wpts = [];      // точките от копчето "Точка": {lat, lon, ele, time, name}
     this.t0 = 0;
     this.lastD = null;
     this.lastOn = null;  // мястото по маршрута на последната записана точка, ако е върху трака
@@ -37,6 +39,7 @@
         return false;
       }
       this.rec = [];
+      this.wpts = [];
       this.t0 = Date.now();
       this.lastD = null;
       this.lastOn = null;
@@ -71,7 +74,7 @@
           self.bridge(last, p).forEach(function (q) { self.rec.push(q); });
           self.rec.push(p);
         }
-        self.cb.position({ lat: c.latitude, lon: c.longitude, acc: c.accuracy, heading: c.heading, speed: c.speed, t: pos.timestamp });
+        self.cb.position({ lat: c.latitude, lon: c.longitude, alt: c.altitude, acc: c.accuracy, heading: c.heading, speed: c.speed, t: pos.timestamp });
       }, function (err) {
         if (gen !== self.gen) return;
         // Докато страницата е скрита или чакаме сигнал след връщане, грешката не спира следенето:
@@ -152,6 +155,15 @@
       return this.rec.slice();
     },
     elapsed: function () { return Date.now() - this.t0; },
+    // Точка на мястото pos (последното положение от GPS); празно име - "Точка N".
+    addPoint: function (pos, name) {
+      if (!pos) return null;
+      var w = { lat: Math.round(pos.lat * 1e6) / 1e6, lon: Math.round(pos.lon * 1e6) / 1e6,
+        ele: pos.alt != null && isFinite(pos.alt) ? Math.round(pos.alt) : null, time: pos.t || Date.now(),
+        name: String(name || '').trim() || 'Точка ' + (this.wpts.length + 1) };
+      this.wpts.push(w);
+      return w;
+    },
 
     /* Следата между последната записана точка и новата: точките на маршрута помежду им, ако и двете
        са до ON_LIMIT м от линията му. Напред по посоката на маршрута (при затворен кръг - през края

@@ -3,8 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>GPX конструктор</title>
-<meta name="description" content="Сглобяване на нов маршрут от записани GPX тракове: дубликати, части, изрязване, износ като .gpx и картина за офлайн.">
+<title>CX Tracks</title>
+<meta name="application-name" content="CX Tracks">
+<meta name="apple-mobile-web-app-title" content="CX Tracks">
+<meta name="description" content="CX Tracks: сглобяване на нов маршрут от записани GPX тракове: дубликати, части, изрязване, износ като .gpx и картина за офлайн.">
 <meta name="theme-color" content="#f6f3ec">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='5' fill='none' stroke='%232b5fd9' stroke-width='2.5'/%3E%3C/svg%3E">
 <script>
@@ -14,15 +16,28 @@
     try { m = JSON.parse(localStorage.getItem('gpxk.mode')); } catch (e) { /* няма запис */ }
     if (m !== 'light' && m !== 'dark') m = 'light';
     document.documentElement.setAttribute('data-app-mode', m);
+    // Началният екран е само за първото пускане на устройството.
+    var seen = false;
+    try { seen = !!JSON.parse(localStorage.getItem('gpxk.splash')); } catch (e) { /* няма запис */ }
+    if (seen) document.documentElement.classList.add('splash-seen');
   })();
 </script>
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
 
+<div id="splash" class="splash" role="dialog" aria-modal="true" aria-label="CX Tracks - натисни, за да продължиш" tabindex="-1">
+  <img src="assets/splash.jpg" alt="" width="1280" height="914" decoding="async">
+  <div class="splash-t">
+    <h1>CX Tracks</h1>
+    <p>Маршрути и тракове</p>
+  </div>
+  <p class="splash-hint">Натисни, за да продължиш · изчезва сам след 3 с</p>
+</div>
+
 <header id="bar" class="bar" aria-label="Горна лента">
   <div class="bar-row">
-    <span class="logo"><i></i><span class="logo-t">GPX конструктор</span></span>
+    <span class="logo"><i></i><span class="logo-t">CX Tracks</span></span>
     <input id="routeName" class="route-name" type="text" value="Нов маршрут" aria-label="Име на маршрута" spellcheck="false">
     <button class="btn" data-act="undo" id="undoBtn" disabled>Отмени</button>
     <label class="tol"><span class="tol-label">Отклонение</span> <input type="text" class="tolInput num" inputmode="numeric" pattern="[0-9]*" maxlength="3" value="20" autocomplete="off" aria-label="Максимално допустимо отклонение в метри" title="Отклонение в метри, от 0 до 999. Enter прилага."> <span class="tol-unit">м</span></label>
@@ -55,6 +70,7 @@
       <button data-view="map" class="on">Карта</button>
       <button data-view="pic">Картина</button>
     </div>
+    <button class="btn" data-act="walk-point" id="walkPtBtn" aria-disabled="true" title="Няма сигнал от GPS - точката чака положение">Точка</button>
     <div class="seg" role="group" aria-label="Ориентация на картата при следене">
       <button data-orient="heading" class="on" title="Посоката на движение сочи нагоре">Посока</button>
       <button data-orient="north" title="Север сочи нагоре">Север</button>
@@ -245,6 +261,7 @@
   </section>
 
   <footer class="foot">
+    <p class="foot-name"><b>CX Tracks</b> · маршрути и тракове</p>
     <p>Данните живеят само в този браузър. За друго устройство изнеси колекцията и я зареди там.</p>
     <p>Плочки: Esri World Imagery и Esri Reference, OpenTopoMap. Търсене: Nominatim (OpenStreetMap). Височини: Open-Meteo, резерва OpenTopoData.</p>
     <p class="ver">Версия <span class="num" id="appVersion"></span><span id="appDate"></span></p>
@@ -321,6 +338,45 @@
       <span class="muted small sp">Enter сваля, Escape затваря</span>
       <button class="btn" type="button" id="nameCancel">Отказ</button>
       <button class="btn pri" type="submit" value="save" id="nameOk">Свали</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgPoint" class="dlg dlg-sm">
+  <form method="dialog" id="pointForm">
+    <h3>Точка</h3>
+    <div class="row name-row">
+      <input id="walkPtName" type="text" autocomplete="off" spellcheck="false" aria-label="Име на точката">
+    </div>
+    <p class="muted small" id="walkPtWhere"></p>
+    <div class="row end">
+      <span class="muted small sp">Празно име - номер</span>
+      <button class="btn" type="button" id="walkPtCancel">Отказ</button>
+      <button class="btn pri" type="submit" value="ok" id="walkPtOk">Сложи</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgWalk" class="dlg dlg-sm">
+  <form method="dialog" id="walkForm">
+    <h3>Запис на изминатото</h3>
+    <label class="walk-field"><span class="small muted">Име на записа</span>
+      <input id="walkName" type="text" autocomplete="off" spellcheck="false">
+    </label>
+    <label class="smooth-opt"><input type="checkbox" id="smSide">
+      <span><b>Изглаждане</b><br><span class="muted small">маха точките до 5 м встрани от линията</span></span></label>
+    <label class="smooth-opt"><input type="checkbox" id="smDense">
+      <span><b>Гъсти точки</b><br><span class="muted small">маха съседни точки на под 5 м по линията</span></span></label>
+    <dl class="smooth-sum">
+      <dt>Точки след изглаждане</dt><dd class="num" id="smPts">-</dd>
+      <dt>Дължина</dt><dd class="num" id="smLen">-</dd>
+    </dl>
+    <p class="muted small">Суровата следа остава, докато прозорецът е отворен: ако не ти хареса, изключваш отметките и записваш пак. Изглаждането не пипа височините, часовете и точките от „Точка“. „Отказ“ оставя записа суров, под името по подразбиране.</p>
+    <div class="row end">
+      <button class="btn" type="button" id="walkCancel">Отказ</button>
+      <span class="sp"></span>
+      <button class="btn" type="button" id="walkDl">Свали .gpx</button>
+      <button class="btn pri" type="submit" value="save" id="walkOk">Запази</button>
     </div>
   </form>
 </dialog>
