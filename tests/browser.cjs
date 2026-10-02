@@ -617,7 +617,7 @@ function barFits() {
   const tip = await page.evaluate(() => ({ x: document.documentElement.scrollWidth - innerWidth }));
   check(tip.x <= 0, 'след обхождането няма хоризонтален скрол (' + tip.x + ')');
 
-  // 1.1.2: иконите вместо думи, "Имена" в лентата, стрелката нагоре до колоната долу вдясно.
+  // 1.1.2: иконите вместо думи, "Имена" в лентата, стрелката нагоре.
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.evaluate(() => window.scrollTo(0, 0));
   const icos = await page.evaluate(() => ['.seg.base [data-base="sat"]', '.seg.base [data-base="topo"]', '#centerBtn'].map(s => { const b = document.querySelector(s); return { s, svg: !!b.querySelector('svg'), text: b.textContent.trim(), label: b.getAttribute('aria-label'), title: b.getAttribute('title') }; }));
@@ -633,29 +633,54 @@ function barFits() {
   await page.click('#labelsToggle');
   const lay2 = await layN();
   check(lay0.chk && lay0.n === 3 && !lay1.chk && lay1.n === 1 && lay1.ls === 'false' && lay2.chk && lay2.n === 3 && lay2.ls === 'true', '„Имена“ от лентата скрива и връща имената върху снимките и помни избора: ' + [lay0.n, lay1.n, lay2.n].join(' → '));
-  // Стрелката нагоре: не застъпва колоната, не излиза от картата, не закрива .attrib.
+  // 1.1.3: стрелката нагоре е плаващо копче, заковано за екрана (26 px отдолу, 56 px отдясно), видимо винаги.
   function topBtnLayout() {
-    const R = e => e.getBoundingClientRect(), a = R(document.querySelector('#toTopBtn')), m = R(document.querySelector('#mapwrap')), at = R(document.querySelector('#attrib'));
-    const hit = (p, q) => !(p.right <= q.left || q.right <= p.left || p.bottom <= q.top || q.bottom <= p.top);
+    const R = e => e.getBoundingClientRect(), btn = document.querySelector('#toTopBtn'), a = R(btn), cs = getComputedStyle(btn);
+    const hit = (p, q) => q.width > 0 && q.height > 0 && !(p.right <= q.left || q.right <= p.left || p.bottom <= q.top || q.bottom <= p.top);
     const col = ['zoom-in', 'zoom-out', 'center', 'fit'].map(k => R(document.querySelector('.mapctl.br [data-act="' + k + '"]')));
-    return { shown: a.width > 0 && getComputedStyle(document.querySelector('#toTopBtn')).display !== 'none', round: getComputedStyle(document.querySelector('#toTopBtn')).borderRadius === '50%',
-      overCol: col.some(c => hit(a, c)), inMap: a.left >= m.left && a.right <= m.right && a.top >= m.top && a.bottom <= m.bottom, overAttrib: hit(a, at),
+    // Редовете текст в дъното на страницата - по самите букви, не по ширината на <p>.
+    const footHit = [...document.querySelectorAll('.foot p, .foot button')].some(el => { const r = document.createRange(); r.selectNodeContents(el); return [...r.getClientRects()].some(q => hit(a, q)) || (el.tagName === 'BUTTON' && hit(a, R(el))); });
+    const top = document.elementFromPoint(a.left + a.width / 2, a.top + a.height / 2);
+    return { fixed: cs.position === 'fixed', round: cs.borderRadius === '50%', w: Math.round(a.width), h: Math.round(a.height), svg: !!btn.querySelector('svg'), inCol: !!btn.closest('.mapctl'),
+      right: Math.round(innerWidth - a.right), bottom: Math.round(innerHeight - a.bottom), onTop: !!top && (top === btn || btn.contains(top)),
+      overCol: col.some(c => hit(a, c)), overAttrib: hit(a, R(document.querySelector('#attrib'))), overBar: hit(a, R(document.querySelector('#bar'))), overFoot: footHit,
       gap: Math.round(col[3].left - a.right), bottomAlign: Math.abs(a.bottom - col[3].bottom) < 1.5, sameW: col.every(c => Math.abs(c.width - col[0].width) < 0.5),
-      info: Math.round(a.left) + '-' + Math.round(a.right) + ' / колона ' + Math.round(col[3].left) + ' / attrib до ' + Math.round(at.right) };
+      rect: [a.left, a.top, a.width, a.height].map(Math.round).join(','), sy: Math.round(scrollY) };
   }
   for (const w of [360, 560, 760, 1440]) {
     await page.setViewportSize({ width: w, height: 800 });
-    await page.evaluate(() => window.scrollTo(0, 0));
-    const L = await page.evaluate(topBtnLayout);
-    check(L.shown && L.round && !L.overCol && L.inMap && !L.overAttrib && L.gap >= 6 && L.gap <= 10 && L.bottomAlign && L.sameW, 'на ' + w + ' px стрелката нагоре е кръгла, плътно вляво от колоната (' + L.gap + ' px), подравнена по дъното, не застъпва копчетата и .attrib и е в картата: ' + L.info);
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    const L0 = await page.evaluate(topBtnLayout);
+    check(L0.fixed && L0.round && L0.svg && !L0.inCol && L0.w === 36 && L0.h === 36 && L0.right === 56 && L0.bottom === 26 && L0.onTop, 'на ' + w + ' px стрелката нагоре е кръгче 36×36 с position fixed, 56 px отдясно и 26 px отдолу на екрана, извън колоната: ' + JSON.stringify({ r: L0.right, b: L0.bottom, w: L0.w }));
+    check(!L0.overCol && !L0.overAttrib && !L0.overBar && L0.gap >= 6 && L0.gap <= 10 && L0.bottomAlign && L0.sameW, 'на ' + w + ' px при картата стрелката е в една редица с колоната (' + L0.gap + ' px вляво, подравнена по дъното), не застъпва "+ / − / Центрирай / ▣", реда за авторството и лентата');
+    // Надолу до текстовите карти и до дъното: копчето е на същото място спрямо екрана и отгоре на всичко.
+    const mid = await page.evaluate(() => { const p = document.querySelector('#panel'); window.scrollTo({ top: p.offsetTop + 200, behavior: 'instant' }); return document.querySelector('#mapwrap').getBoundingClientRect().bottom; });
+    const L1 = await page.evaluate(topBtnLayout);
+    await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }));
+    const L2 = await page.evaluate(topBtnLayout);
+    check(mid <= 0 && L1.sy > 0 && L2.sy > L1.sy - 1 && L1.rect === L0.rect && L2.rect === L0.rect && L1.onTop && L2.onTop && !L2.overFoot && !L1.overBar && !L2.overBar,
+      'на ' + w + ' px стрелката се вижда и при текстовите карти (scrollY ' + L1.sy + ') и в дъното (' + L2.sy + ') на същото място (' + L0.rect + '), не закрива дъното на страницата и лентата');
+    // Кликът идва в следващ кадър - като от човек, а не в същия кадър като скрола надолу.
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await page.evaluate(() => document.querySelector('#toTopBtn').click());
+    const back = await page.waitForFunction(() => window.scrollY === 0, null, { timeout: 4000 }).then(() => 0, () => page.evaluate(() => window.scrollY));
+    check(back === 0 && await page.evaluate(() => document.querySelector('#mapwrap').getBoundingClientRect().top === 0), 'на ' + w + ' px клик на стрелката от дъното връща scrollY 0 и картата е на екрана (' + back + ')');
+  }
+  // Редът за сваляне на изминатото (долу върху картата) не се застъпва със стрелката.
+  for (const w of [360, 1440]) {
+    await page.setViewportSize({ width: w, height: 800 });
+    const wb = await page.evaluate(() => { const b = document.querySelector('#walkBar'); b.hidden = false; const p = b.getBoundingClientRect(), q = document.querySelector('#toTopBtn').getBoundingClientRect(); b.hidden = true;
+      return !(p.right <= q.left || q.right <= p.left || p.bottom <= q.top || q.bottom <= p.top); });
+    check(!wb, 'на ' + w + ' px стрелката не застъпва реда "Свали изминалото като .gpx"');
   }
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }));
   const sy0 = await page.evaluate(() => window.scrollY);
   check(sy0 > 300 && await page.evaluate(() => document.querySelector('#toTopBtn').getAttribute('aria-label') === 'Най-горе на страницата'), 'стрелката нагоре е с надпис на български; страницата е свалена до ' + Math.round(sy0) + ' px');
-  await page.evaluate(() => document.querySelector('#toTopBtn').click());
+  await page.screenshot({ path: path.join(OUT, 'totop-390-bottom.png') });
+  await page.click('#toTopBtn');
   const sy1 = await page.waitForFunction(() => window.scrollY === 0, null, { timeout: 4000 }).then(() => 0, () => page.evaluate(() => window.scrollY));
-  check(sy1 === 0, 'клик на стрелката нагоре връща страницата най-горе (scrollY ' + sy1 + ')');
+  check(sy1 === 0, 'истински клик на стрелката нагоре (390 px, от дъното) връща страницата плавно най-горе (scrollY ' + sy1 + ')');
   await page.screenshot({ path: path.join(OUT, 'totop-390.png') });
 
   // Обща отсечка: три трака (X на изток, Z от края на X на юг, Y слиза до X, минава по него и се отделя).
@@ -955,9 +980,9 @@ function barFits() {
   // Версия: в дъното и в името на кеша от sw.js.
   const verText = (await p5.textContent('#appVersion')).trim();
   const ver = (verText.match(/^\d+\.\d+\.\d+/) || [''])[0];
-  check(ver === '1.1.2' && await p5.isVisible('#appVersion') && /^Версия 1\.1\.2 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
+  check(ver === '1.1.3' && await p5.isVisible('#appVersion') && /^Версия 1\.1\.3 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
   const swCache = (() => { const ctx = { importScripts: f => vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx), addEventListener: () => {} }; ctx.self = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8') + ';this.__c = CACHE;', ctx); return ctx.__c; })();
-  check(swCache === 'gpxk-v21-1.1.2' && swCache === 'gpxk-v21-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
+  check(swCache === 'gpxk-v22-1.1.3' && swCache === 'gpxk-v22-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
   const liveCaches = await p5.evaluate(() => navigator.serviceWorker.ready.then(() => new Promise(r => { const t0 = Date.now(); (function poll() { caches.keys().then(k => (k.length || Date.now() - t0 > 8000) ? r(k) : setTimeout(poll, 100)); })(); })));
   check(liveCaches.length === 1 && liveCaches[0] === swCache, 'в браузъра работникът е създал кеш ' + JSON.stringify(liveCaches));
   // Бутоните са неактивни, когато няма какво да изчистят.
