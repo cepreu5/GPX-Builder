@@ -2412,6 +2412,7 @@
       case 'live-gpx': liveDone('gpx'); break;
       case 'live-drop': liveDone('drop'); break;
       case 'to-panel': $('#panel').scrollIntoView({ behavior: 'smooth' }); break;
+      case 'to-top': window.scrollTo({ top: 0, behavior: 'smooth' }); break;
       case 'undo': undo(); break;
       case 'clear-tracks': clearTracks(); break;
       case 'clear-parts': clearParts(); break;

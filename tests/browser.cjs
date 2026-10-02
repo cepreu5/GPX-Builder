@@ -617,6 +617,47 @@ function barFits() {
   const tip = await page.evaluate(() => ({ x: document.documentElement.scrollWidth - innerWidth }));
   check(tip.x <= 0, 'след обхождането няма хоризонтален скрол (' + tip.x + ')');
 
+  // 1.1.2: иконите вместо думи, "Имена" в лентата, стрелката нагоре до колоната долу вдясно.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const icos = await page.evaluate(() => ['.seg.base [data-base="sat"]', '.seg.base [data-base="topo"]', '#centerBtn'].map(s => { const b = document.querySelector(s); return { s, svg: !!b.querySelector('svg'), text: b.textContent.trim(), label: b.getAttribute('aria-label'), title: b.getAttribute('title') }; }));
+  check(icos.every(i => i.svg && i.text === '' && i.label && i.title), 'Сателит, Топо и Центрирай са икони <svg> без дума, с aria-label и title: ' + icos.map(i => i.label).join(' / '));
+  check(icos[0].label === 'Сателит' && icos[1].label === 'Топо' && /^Центрирай/.test(icos[2].label), 'имената на иконите за екранни четци са на място');
+  const lbl = await page.evaluate(() => { const t = document.querySelector('#labelsToggle'), c = document.querySelector('#labelsChk').getBoundingClientRect(), sv = document.querySelector('#bar [data-act="save"]').getBoundingClientRect(), tp = document.querySelector('#bar [data-act="to-panel"]').getBoundingClientRect();
+    return { inBar: !!t.closest('#bar'), inTr: !!t.closest('.mapctl.tr'), type: t.type, text: document.querySelector('#labelsChk').textContent.trim(), right: c.left >= sv.right, beforeArrow: c.right <= tp.left, sameRow: c.top < sv.bottom && sv.top < c.bottom, prev: document.querySelector('#labelsChk').previousElementSibling.dataset.act, vtxOnMap: !!document.querySelector('.mapctl.tr #vtxToggle') }; });
+  check(lbl.inBar && !lbl.inTr && lbl.type === 'checkbox' && lbl.text === 'Имена' && lbl.right && lbl.beforeArrow && lbl.sameRow && lbl.prev === 'save' && lbl.vtxOnMap, '„Имена“ е квадратче в първия ред на лентата, вдясно от „Запази“ и преди стрелката надолу; „Точки“ остава на картата: ' + JSON.stringify(lbl));
+  const layN = () => page.evaluate(() => ({ n: __gpxk.map.layers.length, chk: document.querySelector('#labelsToggle').checked, ls: localStorage.getItem('gpxk.labels') }));
+  const lay0 = await layN();
+  await page.click('#labelsToggle');
+  const lay1 = await layN();
+  await page.click('#labelsToggle');
+  const lay2 = await layN();
+  check(lay0.chk && lay0.n === 3 && !lay1.chk && lay1.n === 1 && lay1.ls === 'false' && lay2.chk && lay2.n === 3 && lay2.ls === 'true', '„Имена“ от лентата скрива и връща имената върху снимките и помни избора: ' + [lay0.n, lay1.n, lay2.n].join(' → '));
+  // Стрелката нагоре: не застъпва колоната, не излиза от картата, не закрива .attrib.
+  function topBtnLayout() {
+    const R = e => e.getBoundingClientRect(), a = R(document.querySelector('#toTopBtn')), m = R(document.querySelector('#mapwrap')), at = R(document.querySelector('#attrib'));
+    const hit = (p, q) => !(p.right <= q.left || q.right <= p.left || p.bottom <= q.top || q.bottom <= p.top);
+    const col = ['zoom-in', 'zoom-out', 'center', 'fit'].map(k => R(document.querySelector('.mapctl.br [data-act="' + k + '"]')));
+    return { shown: a.width > 0 && getComputedStyle(document.querySelector('#toTopBtn')).display !== 'none', round: getComputedStyle(document.querySelector('#toTopBtn')).borderRadius === '50%',
+      overCol: col.some(c => hit(a, c)), inMap: a.left >= m.left && a.right <= m.right && a.top >= m.top && a.bottom <= m.bottom, overAttrib: hit(a, at),
+      gap: Math.round(col[3].left - a.right), bottomAlign: Math.abs(a.bottom - col[3].bottom) < 1.5, sameW: col.every(c => Math.abs(c.width - col[0].width) < 0.5),
+      info: Math.round(a.left) + '-' + Math.round(a.right) + ' / колона ' + Math.round(col[3].left) + ' / attrib до ' + Math.round(at.right) };
+  }
+  for (const w of [360, 560, 760, 1440]) {
+    await page.setViewportSize({ width: w, height: 800 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const L = await page.evaluate(topBtnLayout);
+    check(L.shown && L.round && !L.overCol && L.inMap && !L.overAttrib && L.gap >= 6 && L.gap <= 10 && L.bottomAlign && L.sameW, 'на ' + w + ' px стрелката нагоре е кръгла, плътно вляво от колоната (' + L.gap + ' px), подравнена по дъното, не застъпва копчетата и .attrib и е в картата: ' + L.info);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const sy0 = await page.evaluate(() => window.scrollY);
+  check(sy0 > 300 && await page.evaluate(() => document.querySelector('#toTopBtn').getAttribute('aria-label') === 'Най-горе на страницата'), 'стрелката нагоре е с надпис на български; страницата е свалена до ' + Math.round(sy0) + ' px');
+  await page.evaluate(() => document.querySelector('#toTopBtn').click());
+  const sy1 = await page.waitForFunction(() => window.scrollY === 0, null, { timeout: 4000 }).then(() => 0, () => page.evaluate(() => window.scrollY));
+  check(sy1 === 0, 'клик на стрелката нагоре връща страницата най-горе (scrollY ' + sy1 + ')');
+  await page.screenshot({ path: path.join(OUT, 'totop-390.png') });
+
   // Обща отсечка: три трака (X на изток, Z от края на X на юг, Y слиза до X, минава по него и се отделя).
   // Празна колекция в нов контекст; траковете се внасят като .gpx файлове.
   function line(lat0, lon0, lat1, lon1, n) { const p = []; for (let i = 0; i <= n; i++) { const f = i / n; p.push([lat0 + f * (lat1 - lat0), lon0 + f * (lon1 - lon0), 500 + i]); } return p; }
@@ -914,9 +955,9 @@ function barFits() {
   // Версия: в дъното и в името на кеша от sw.js.
   const verText = (await p5.textContent('#appVersion')).trim();
   const ver = (verText.match(/^\d+\.\d+\.\d+/) || [''])[0];
-  check(ver === '1.1.1' && await p5.isVisible('#appVersion') && /^Версия 1\.1\.1 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
+  check(ver === '1.1.2' && await p5.isVisible('#appVersion') && /^Версия 1\.1\.2 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
   const swCache = (() => { const ctx = { importScripts: f => vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx), addEventListener: () => {} }; ctx.self = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8') + ';this.__c = CACHE;', ctx); return ctx.__c; })();
-  check(swCache === 'gpxk-v20-1.1.1' && swCache === 'gpxk-v20-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
+  check(swCache === 'gpxk-v21-1.1.2' && swCache === 'gpxk-v21-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
   const liveCaches = await p5.evaluate(() => navigator.serviceWorker.ready.then(() => new Promise(r => { const t0 = Date.now(); (function poll() { caches.keys().then(k => (k.length || Date.now() - t0 > 8000) ? r(k) : setTimeout(poll, 100)); })(); })));
   check(liveCaches.length === 1 && liveCaches[0] === swCache, 'в браузъра работникът е създал кеш ' + JSON.stringify(liveCaches));
   // Бутоните са неактивни, когато няма какво да изчистят.

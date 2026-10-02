@@ -131,6 +131,8 @@ input[type="text"], input[type="search"] {
 input[type="range"] { accent-color: var(--app-accent); vertical-align: middle; }
 input[type="checkbox"], input[type="radio"] { accent-color: var(--app-accent); }
 .chk { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; cursor: pointer; }
+/* "Имена" в първия ред на лентата: дребно квадратче с чавка, не разтяга реда */
+#bar .bar-chk { flex-shrink: 0; white-space: nowrap; gap: 4px; padding: 0 2px; line-height: 1; }
 
 /* Горна лента върху картата - скрива се с докосване на картата */
 .bar {
@@ -189,7 +191,7 @@ body.bar-hidden .mapctl.tr { top: calc(12px + env(safe-area-inset-top)); }
 /* При следене лентата е с ред повече: контролите горе вдясно слизат под нея (--bar-h идва от app.js) */
 body.following:not(.bar-hidden) .mapctl.tr { top: calc(var(--bar-h, 86px) + 10px); }
 body.following:not(.bar-hidden) .pic-scroll { padding-top: calc(var(--bar-h, 86px) + 2px); }
-/* Горе вляво, на реда на "Сателит / Топо / Имена": "Следене / Стоп" и бутон "Лента", който връща скритата лента.
+/* Горе вляво, на реда на "Сателит / Топо": "Следене / Стоп" и бутон "Лента", който връща скритата лента.
    И двете се виждат само докато лентата е скрита. */
 .maptl {
   position: absolute; z-index: 25; left: 10px; top: calc(12px + env(safe-area-inset-top));
@@ -214,7 +216,14 @@ body.bar-hidden .maptl .follow-fab { display: inline-flex; }
 .barhandle:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 1px; }
 .mapctl.br { right: 10px; bottom: 26px; flex-direction: column; align-items: flex-end; }
 .mapctl .btn.ico, .mapctl .center-btn { background: var(--app-overlay); }
-.mapctl .center-btn { font-size: 12.5px; padding: 4px 9px; }
+/* Колоната долу вдясно е равна по ширина: "+", "−", мерникът "Центрирай" и "▣" */
+.mapctl.br .btn.ico { width: 38px; padding-left: 0; padding-right: 0; }
+/* Стрелката нагоре: плътно вляво от колоната, подравнена по дъното ѝ; връща най-горе на страницата */
+.mapctl.br .btn.totop-btn { position: absolute; right: calc(100% + 8px); bottom: 0; width: 36px; height: 36px; min-height: 0; border-radius: 50%; box-shadow: var(--app-shadow); }
+/* Иконите на копчетата (Сателит, Топо, Центрирай, стрелката нагоре): нарисувани в index.html, цветът идва от копчето */
+.ico-svg { display: block; width: 22px; height: 22px; flex-shrink: 0; }
+.totop-btn .ico-svg { width: 20px; height: 20px; }
+.seg.base button { display: inline-flex; align-items: center; justify-content: center; padding: 3px 9px; }
 /* Стрелката "С" и копчето "Север": под реда горе вдясно, при завъртяна карта */
 .compass {
   position: absolute; right: 0; top: calc(100% + 8px);
@@ -498,7 +507,7 @@ td .num, td.num { font-family: var(--app-mono); }
   .mapctl.tr { gap: 4px; }
   .maptl { flex-direction: column; align-items: flex-start; }
   .maptl #barHandle { order: -1; }
-  .mapctl.tr .seg button { padding: 5px 8px; }
+  .mapctl.tr .seg button { padding: 3px 7px; }
   .mapctl.tr .chk { padding: 4px 6px; gap: 4px; }
 }
 @media (max-width: 360px) {
