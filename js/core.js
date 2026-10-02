@@ -831,12 +831,27 @@
     return U.boundsOf(tracks.map(function (t) { return t.pts; }));
   }
 
+  /* Дупки в изминатото при следене: две поредни положения от GPS (те носят точност в p[4]) на повече
+     от WALK_GAP м едно от друго по следата - между тях е попълнено (по маршрута или по права), не измерено.
+     Връща двойки индекси [i0, i1] на двете измерени точки. Без точност (внесен .gpx) - без дупки. */
+  var WALK_GAP = 40;
+  function walkGaps(pts) {
+    var out = [], prev = -1, run = 0;
+    for (var i = 0; i < pts.length; i++) {
+      if (i > 0) run += U.hav(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]);
+      if (pts[i].length < 5 || pts[i][4] == null) continue;
+      if (prev >= 0 && run > WALK_GAP) out.push([prev, i]);
+      prev = i; run = 0;
+    }
+    return out;
+  }
+
   window.Core = {
     prep: prep, analyze: analyze, slice: slice, pointAt: pointAt, nearestOn: nearestOn, alongOn: alongOn,
     nearestOnTrack: nearestOnTrack, invalidShare: invalidShare, routeGeometry: routeGeometry,
     trackBounds: trackBounds, overlap: overlap, ROUTE_GAP: ROUTE_GAP, LINK_MIN: LINK_MIN, DUP_BRIDGE: DUP_BRIDGE,
     routeForks: routeForks, switchFork: switchFork, branchProbe: branchProbe,
-    mergeIv: mergeIv, trimItems: trimItems,
+    mergeIv: mergeIv, trimItems: trimItems, walkGaps: walkGaps, WALK_GAP: WALK_GAP,
     joinTol: function (tol) { return Math.max(ROUTE_GAP, 1.5 * (tol || 20)); }
   };
 })();

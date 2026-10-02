@@ -406,3 +406,14 @@ console.log('общ участък OK');
   assert.ok(j && Math.abs(j.d - a.d) < 0.01, 'малко назад по кръга (под lim): остава на d0, без обиколка');
   console.log('alongOn: OK');
 })();
+// Дупки в изминатото: поредни измерени положения на над 40 м по следата; вмъкнатите (празна точност) са между тях.
+(function () {
+  var m = function (lat, lon, acc) { return [lat, lon, 500, 0, acc === undefined ? 5 : acc]; };
+  var pts = [m(42.5, 24.7), m(42.5, 24.70012), m(42.5, 24.70024), // по ~10 м - измерено
+    m(42.5, 24.7012, null), m(42.5, 24.7024, null), m(42.5, 24.7036), // вмъкнати по маршрута, ~280 м
+    m(42.5, 24.70372), m(42.5007, 24.70372)]; // 10 м, после скок ~78 м по права
+  assert.deepStrictEqual(Core.walkGaps(pts), [[2, 5], [6, 7]], 'дупка по маршрута и права линия при скок');
+  assert.deepStrictEqual(Core.walkGaps(pts.slice(0, 3)), [], 'без дупка');
+  assert.deepStrictEqual(Core.walkGaps(pts.map(function (p) { return p.slice(0, 4); })), [], 'трак без точност (внесен .gpx) - без дупки');
+  console.log('walkGaps: OK');
+})();

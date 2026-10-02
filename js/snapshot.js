@@ -155,6 +155,16 @@
       ctx.stroke();
       ctx.setLineDash([]);
     });
+    // Попълненото при дупка в GPS (в изминат трак): кехлибарено, на пунктир.
+    (route.gaps || []).forEach(function (pts) {
+      if (pts.length < 2) return;
+      ctx.beginPath();
+      pts.forEach(function (pt, k) { var q = pr(pt[0], pt[1]); if (k) ctx.lineTo(q[0], q[1]); else ctx.moveTo(q[0], q[1]); });
+      ctx.strokeStyle = col.casing; ctx.lineWidth = 7 * s; ctx.stroke();
+      ctx.strokeStyle = col.gap || '#e09a00'; ctx.lineWidth = 5 * s; ctx.setLineDash([10 * s, 7 * s]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
 
     // Посока: стрелки през равни отстояния по цялата линия.
     var all = [];

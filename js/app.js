@@ -32,7 +32,7 @@
     undo: [], base: U.LS.get('base', 'sat'), labels: U.LS.get('labels', true), vtxShow: U.LS.get('vtxShow', true),
     grade: U.LS.get('grade', true), fold: U.LS.get('fold', {}), follower: null, pos: null, prog: null, followView: 'map',
     autoCenter: true, pin: null, profHover: null, picUrl: null, picMeta: null,
-    orient: U.LS.get('orient', 'heading') === 'north' ? 'north' : 'heading', heading: null, lastWalk: null,
+    orient: U.LS.get('orient', 'heading') === 'north' ? 'north' : 'heading', heading: null, lastWalk: null, lastPos: null, rot: 0, nameJob: null,
     awake: U.LS.get('awake', true) !== false
   };
   var map;
@@ -109,6 +109,11 @@
     }
     S.tracks.forEach(function (t) { delete t._cum; });
     S.routes.forEach(function (r) { r.walks = r.walks || []; r.items = r.items || []; r.forks = r.forks || []; r.openGaps = r.openGaps || []; });
+    // Записите на изминатото до 1.0.6 носеха края на частта като брой точки, а не като метри по трака.
+    S.routes.forEach(function (r) {
+      var it = r.items.length === 1 && r.items[0], t = it && it.type === 'part' && it.a === 0 && track(it.trackId);
+      if (t && t.walk && r.name === t.name && it.b === t.pts.length - 1) { Core.prep(t); if (t.len > it.b) it.b = t.len; }
+    });
   }
 
   // ---- Отмяна ----
@@ -249,7 +254,7 @@
 
   var C = {};
   function refreshColors() {
-    ['route-a', 'route-b', 'casing', 'dup', 'junction', 'gap', 'cut', 'pos', 'walked', 'accent', 'map-bg', 'ink', 'surface', 'ok', 'warn', 'danger', 'muted', 'line', 'accent-soft', 'track-1', 'track-2', 'track-3', 'track-4', 'track-5', 'track-6', 'track-7', 'track-8'].forEach(function (k) {
+    ['route-a', 'route-b', 'casing', 'dup', 'junction', 'gap', 'cut', 'pos', 'walked', 'walk-gap', 'accent', 'map-bg', 'ink', 'surface', 'ok', 'warn', 'danger', 'muted', 'line', 'accent-soft', 'track-1', 'track-2', 'track-3', 'track-4', 'track-5', 'track-6', 'track-7', 'track-8'].forEach(function (k) {
       C[k] = U.cssVar('--app-' + k);
     });
     if (map) map.redraw();
@@ -419,6 +424,43 @@
     ui.rings = drawn;
   }
 
+  /* Попълненото при дупка в GPS в изминат трак (Core.walkGaps): отрязъци [от, до] в метри по трака.
+     Чертае се кехлибарено на пунктир - на картата, в "Картина" и върху запазената картина. */
+  function walkGapIv(t) {
+    if (!t || !t.walk) return [];
+    Core.prep(t);
+    if (!t._gaps || t._gapsN !== t.pts.length) {
+      t._gaps = Core.walkGaps(t.pts).map(function (g) { return [t._cum[g[0]], t._cum[g[1]]]; });
+      t._gapsN = t.pts.length;
+    }
+    return t._gaps;
+  }
+  // Линиите на дупките, които попадат в дадените отрязъци [от, до] от трака.
+  function walkGapLines(t, ivs) {
+    var out = [];
+    walkGapIv(t).forEach(function (g) {
+      ivs.forEach(function (iv) {
+        var a = Math.max(g[0], Math.min(iv[0], iv[1])), b = Math.min(g[1], Math.max(iv[0], iv[1]));
+        if (b - a > 0.5) out.push(Core.slice(t, a, b));
+      });
+    });
+    return out;
+  }
+  // Дупките в части на маршрута, взети от изминат трак.
+  function routeGapLines() {
+    var out = [];
+    if (!G) return out;
+    G.items.forEach(function (g) {
+      if (g.item.type !== 'part' || !g.pts.length) return;
+      out = out.concat(walkGapLines(track(g.item.trackId), [[g.item.a, g.item.b]]));
+    });
+    return out;
+  }
+  // Дупките в записа на текущото следене.
+  function recGapLines(rec) {
+    return Core.walkGaps(rec).map(function (g) { return rec.slice(g[0], g[1] + 1); });
+  }
+
   function drawMap(ctx, m) {
     var pr = m.projector();
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
@@ -444,6 +486,9 @@
         path(ctx, pr, pts);
         if (s.kind === 'cut') { stroke(ctx, C.casing, 7); stroke(ctx, C.cut, 5, [2, 5]); }
         else if (s.kind === 'gap') { stroke(ctx, C.gap, 2, [3, 5]); }
+      });
+      walkGapLines(t, ui.drawn[t.id] || []).forEach(function (pts) {
+        path(ctx, pr, pts); stroke(ctx, C.casing, 4.5); stroke(ctx, C['walk-gap'], 2.2, [6, 5]);
       });
     });
 
@@ -492,6 +537,9 @@
           stroke(ctx, itemColor(gi ? gi.colorNo : 1), 2.5, [5, 4]);
         });
       }
+      routeGapLines().forEach(function (pts) {
+        path(ctx, pr, pts); stroke(ctx, C.casing, 7); stroke(ctx, C['walk-gap'], 5, [9, 7]);
+      });
       // Начало и край.
       var s0 = pr(G.pts[0][0], G.pts[0][1]), e0 = pr(G.pts[G.pts.length - 1][0], G.pts[G.pts.length - 1][1]);
       var loop = Math.hypot(s0[0] - e0[0], s0[1] - e0[1]) < 12;
@@ -578,7 +626,10 @@
     // 7. Следене: изминатото, положението, отклонението.
     if (ui.follower) {
       var rec = ui.follower.rec;
-      if (rec.length > 1) { path(ctx, pr, rec); stroke(ctx, C.casing, 6); stroke(ctx, C.walked, 3.5); }
+      if (rec.length > 1) {
+        path(ctx, pr, rec); stroke(ctx, C.casing, 6); stroke(ctx, C.walked, 3.5);
+        recGapLines(rec).forEach(function (pts) { path(ctx, pr, pts); stroke(ctx, C.casing, 4); stroke(ctx, C['walk-gap'], 3.5, [8, 6]); });
+      }
     }
     if (ui.pos) {
       var pq = pr(ui.pos.lat, ui.pos.lon);
@@ -1513,13 +1564,19 @@
     });
     return GPX.build({ name: r.name, pts: pts, wpts: wpts });
   }
-  function exportGpx(r) {
-    r = r || cur();
+  function routeGeo(r) {
     var geo = r.id === S.curId ? G : Core.routeGeometry(r, byId(), A);
-    if (!geo || geo.pts.length < 2) { toast('Маршрутът е празен - клик върху трак го слага в маршрута.', true); return false; }
+    return geo && geo.pts.length >= 2 ? geo : null;
+  }
+  // Сваля маршрута като .gpx (fname - от прозореца за име; без него - от името на маршрута).
+  function exportGpx(r, fname, quiet) {
+    r = r || cur();
+    var geo = routeGeo(r);
+    if (!geo) { if (!quiet) toast('Маршрутът е празен - клик върху трак го слага в маршрута.', true); return false; }
     var xml = routeExport(r, geo, r.id === S.curId ? prof : null);
-    U.download(new Blob([xml], { type: 'application/gpx+xml' }), U.slug(r.name) + '.gpx');
-    toast('Изнесен ' + U.slug(r.name) + '.gpx · ' + U.km(geo.len) + ', една линия');
+    fname = fname || U.slug(r.name) + '.gpx';
+    U.download(new Blob([xml], { type: 'application/gpx+xml' }), fname);
+    if (!quiet) toast('Изнесен ' + fname + ' · ' + U.km(geo.len) + ', една линия');
     return true;
   }
   function exportTrack(t) {
@@ -1601,8 +1658,8 @@
       bounds: s.bounds, margin: s.area === 'view' ? 0 : 0.1, base: baseDef,
       labels: s.base === 'topo' || !s.labels ? [] : [LAYERS.places, LAYERS.roads],
       info: s.info, date: Date.now(),
-      route: { name: r.name, parts: parts, len: G ? G.len : 0, up: prof ? prof.up : null, maxGrade: prof ? prof.maxUp : null, wpts: wpts },
-      colors: { a: C['route-a'], b: C['route-b'], casing: C.casing }
+      route: { name: r.name, parts: parts, gaps: G && G.pts.length > 1 ? routeGapLines() : [], len: G ? G.len : 0, up: prof ? prof.up : null, maxGrade: prof ? prof.maxUp : null, wpts: wpts },
+      colors: { a: C['route-a'], b: C['route-b'], casing: C.casing, gap: C['walk-gap'] }
     }, function (done, total) {
       msg.innerHTML = '<div class="muted">Сглобявам плочките: ' + Math.min(done, total) + ' от около ' + total + '...</div>';
     }).then(function (res) {
@@ -1664,15 +1721,22 @@
     if (!m || $('#picView').hidden) return;
     var s = Math.max(1, Math.max(m.w, m.h) / 1600);
     var out = [];
-    function line(pts, color, w, dash) {
+    function line(pts, color, w, dash, noCasing) {
       if (pts.length < 2) return;
       var d = pts.map(function (p, i) { var q = Snapshot.toPic(m, p[0], p[1]); return (i ? 'L' : 'M') + q[0].toFixed(1) + ' ' + q[1].toFixed(1); }).join('');
-      out.push('<path d="' + d + '" fill="none" stroke="' + C.casing + '" stroke-width="' + (w + 3) * s + '" stroke-linecap="round" stroke-linejoin="round"/>');
+      if (!noCasing) out.push('<path d="' + d + '" fill="none" stroke="' + C.casing + '" stroke-width="' + (w + 3) * s + '" stroke-linecap="round" stroke-linejoin="round"/>');
       out.push('<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="' + w * s + '" stroke-linecap="round" stroke-linejoin="round"' + (dash ? ' stroke-dasharray="' + dash * s + ' ' + dash * s + '"' : '') + '/>');
     }
     // Изминатите пътища от предишни излизания - планът и изминатото един до друг.
-    (cur().walks || []).forEach(function (id) { var t = track(id); if (t) line(t.pts, C.walked, 3, 0); });
-    if (ui.follower) line(ui.follower.rec, C.walked, 4, 0);
+    (cur().walks || []).forEach(function (id) {
+      var t = track(id); if (!t) return;
+      line(t.pts, C.walked, 3, 0);
+      walkGapLines(t, [[0, t.len]]).forEach(function (pts) { line(pts, C.casing, 3, 0, true); line(pts, C['walk-gap'], 3, 4, true); });
+    });
+    if (ui.follower) {
+      line(ui.follower.rec, C.walked, 4, 0);
+      recGapLines(ui.follower.rec).forEach(function (pts) { line(pts, C.casing, 4, 0, true); line(pts, C['walk-gap'], 4, 5, true); });
+    }
     if (ui.pos) {
       var q = Snapshot.toPic(m, ui.pos.lat, ui.pos.lon);
       var inside = q[0] >= 0 && q[1] >= 0 && q[0] <= m.w && q[1] <= m.h;
@@ -1684,15 +1748,28 @@
   }
 
   // ---- Следене ----
+  /* Едно копче "Следене / Стоп" - в лентата, под профила и върху картата при скрита лента:
+     "Следене", докато не следиш, и "Стоп" (червено), докато следиш. */
+  function followBtns() {
+    var on = !!ui.follower;
+    $$('[data-act="follow"]').forEach(function (b) {
+      b.textContent = on ? 'Стоп' : 'Следене';
+      b.classList.toggle('danger', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b.setAttribute('aria-label', on ? 'Стоп - спри следенето' : 'Следене - пусни следенето по GPS');
+      b.title = on ? 'Спри следенето и запиши изминатото' : 'Пусни следенето по GPS';
+    });
+  }
   function startFollow() {
     if (ui.follower) return;
     if (!G || G.pts.length < 2) toast('Маршрутът е празен - ще се записва само изминатото.', false, 4500);
     var f = new window.Follower({
       position: function (pos) {
         ui.pos = pos;
+        ui.lastPos = { lat: pos.lat, lon: pos.lon };
         ui.prog = f.progress(G, pos.lat, pos.lon);
         var hd = moveHeading(pos, f.rec);
-        if (hd != null) ui.heading = hd;
+        if (hd != null) { ui.heading = hd; showCompass(); }
         if (ui.autoCenter) map.setView(pos.lat, pos.lon, Math.max(map.zoom, 15));
         followBearing();
         renderFollow();
@@ -1719,9 +1796,11 @@
     f.awakeOn = ui.awake;
     ui.follower = f;
     ui.followName = cur().name;
+    followBtns();
     forgetWalk();
     ui.autoCenter = true;
     ui.heading = null;
+    showCompass();
     $('#fDone').textContent = '0'; $('#fTime').textContent = '0:00 ч'; $('#fLeft').textContent = '-'; $('#fOff').textContent = '-';
     document.body.classList.add('following');
     $('#followBar').hidden = false;
@@ -1767,6 +1846,7 @@
     clearInterval(ui.liveTimer);
     U.DB.del('liveWalk');
     ui.follower = null; ui.prog = null;
+    followBtns();
     document.body.classList.remove('following');
     $('#followBar').hidden = true;
     $('#tools').hidden = false;
@@ -1779,7 +1859,7 @@
         stats: { time: $('#fTime').textContent, left: $('#fLeft').textContent, off: $('#fOff').textContent }
       });
     } else if (!silent) toast('Следенето спря. Няма записан път.');
-    // Картата остава в последната посока; копчето "Север" я връща.
+    // Картата остава в последната посока; копчето "Север" я изправя, а после "Посока" я връща (ui.heading се пази).
     ui.pos = null;
     map.redraw();
   }
@@ -1815,7 +1895,7 @@
     S.tracks.push(t);
     S.routes.forEach(function (r) { if (r.id === w.routeId) r.walks = (r.walks || []).concat([t.id]); });
     var wr = newRoute(t.name);
-    wr.items = [{ type: 'part', trackId: t.id, a: 0, b: rec.length - 1, rev: false }];
+    wr.items = [{ type: 'part', trackId: t.id, a: 0, b: t.len, rev: false }];
     wr.len = t.len;
     var st = w.stats || {};
     ui.lastWalk = {
@@ -1895,18 +1975,47 @@
     ui.orient = o === 'north' ? 'north' : 'heading';
     U.LS.set('orient', ui.orient);
     $$('#followBar [data-orient]').forEach(function (b) { b.classList.toggle('on', b.dataset.orient === ui.orient); });
-    if (ui.orient === 'north') { if (ui.follower) map.setBearing(0); }
-    else if (ui.follower && ui.followView === 'map' && ui.heading != null) map.setBearing(ui.heading);
+    // И извън следене: "Север" изправя картата, "Посока" я връща към последната известна посока.
+    if (ui.orient === 'north') map.setBearing(0);
+    else if (ui.heading != null && (!ui.follower || ui.followView === 'map')) {
+      if (ui.follower) ui.autoCenter = true;
+      map.setBearing(ui.heading);
+    }
+    showCompass();
   }
-  // Стрелката "С" и копчето "Север" - видими, докато картата е завъртяна.
+  /* Стрелката "С" и двурежимното копче върху картата: "Север", докато картата е завъртяна;
+     "Посока", докато е север-нагоре, а посоката на движение е известна (и след "Стоп").
+     Без известна посока - само "Север", и то само при завъртяна карта. */
   function showCompass(rot) {
-    var b = $('#northBtn');
-    b.hidden = !rot;
-    b.style.setProperty('--rose', (-rot).toFixed(1) + 'deg');
+    if (rot != null) ui.rot = rot;
+    var b = $('#northBtn'), r = ui.rot || 0;
+    var offer = r ? 'north' : ui.heading != null ? 'heading' : '';
+    b.hidden = !offer;
+    b.dataset.offer = offer;
+    $('#northLbl').textContent = offer === 'heading' ? 'Посока' : 'Север';
+    b.setAttribute('aria-label', offer === 'heading' ? 'Посока - завърти картата по посоката на движение' : 'Север - върни север нагоре');
+    b.title = offer === 'heading' ? 'Завърти картата по посоката на движение' : 'Върни север нагоре';
+    b.style.setProperty('--rose', (-r).toFixed(1) + 'deg');
   }
   function northUp() {
-    if (ui.follower && ui.orient === 'heading') setOrient('north');
-    else map.setBearing(0);
+    setOrient($('#northBtn').dataset.offer === 'heading' ? 'heading' : 'north');
+  }
+  /* "Центрирай" (долу вдясно, при "+" и "−"): върху положението от GPS. При следене връща и
+     автоматичното центриране и посоката; извън следене - последното известно положение,
+     а без него пита браузъра веднъж. */
+  function centerMe() {
+    if (ui.follower) {
+      ui.autoCenter = true;
+      if (ui.pos) map.setView(ui.pos.lat, ui.pos.lon, Math.max(map.zoom, 15));
+      followBearing();
+      return;
+    }
+    if (ui.lastPos) { map.setView(ui.lastPos.lat, ui.lastPos.lon, Math.max(map.zoom, 15)); return; }
+    if (!('geolocation' in navigator)) { toast('Няма сигнал от GPS', true); return; }
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      ui.lastPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+      if (!ui.follower) map.setView(ui.lastPos.lat, ui.lastPos.lon, Math.max(map.zoom, 15));
+    }, function () { toast('Няма сигнал от GPS', true); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
   }
 
   /* Последното изминато: панелът "Следене" и редът върху картата с копчето за сваляне.
@@ -1931,25 +2040,69 @@
     showWalk();
   }
 
-  // Изминатото като .gpx: пита за име на файла, после сваля. Следенето не спира.
-  function walkGpx(pts, routeName, title) {
-    if (!pts || pts.length < 2) return;
+  /* Прозорецът "Име на файла". ui.nameJob.kind казва каква е работата: 'walk' - изминатото,
+     'route' - маршрутът ("Изнеси .gpx", "GPX" в реда на записан маршрут), 'save' - "Запази".
+     job.def е предложеното име без .gpx. */
+  function askName(job) {
     var d = $('#dlgName'), inp = $('#fileName');
-    var def = 'izminat-' + U.slug(routeName) + '-' + U.dateDots(Date.now());
-    ui.nameJob = { pts: pts.slice(), title: title || 'изминат ' + U.date(Date.now()), def: def };
-    inp.value = def;
+    ui.nameJob = job;
+    inp.value = job.def;
+    $('#nameOk').textContent = job.kind === 'save' ? 'Запази' : 'Свали';
     if (!d.open) { if (d.showModal) d.showModal(); else d.setAttribute('open', ''); }
     inp.focus(); inp.select();
   }
-  function walkGpxSave() {
-    var job = ui.nameJob; if (!job) return;
-    ui.nameJob = null;
+  // Празно поле или само ".gpx" - предложеното име; липсващото разширение се добавя.
+  function fileNameOf(job) {
     var name = $('#fileName').value.trim().replace(/[\\/:*?"<>|]+/g, '-');
     if (!name || /^\.gpx$/i.test(name)) name = job.def;
     if (!/\.gpx$/i.test(name)) name += '.gpx';
-    var xml = GPX.build({ name: job.title, pts: job.pts, wpts: [] });
-    U.download(new Blob([xml], { type: 'application/gpx+xml' }), name);
-    toast('Изнесен ' + name + ' · ' + U.km(U.lengthOf(job.pts)) + ', ' + U.num(job.pts.length) + ' точки', false, 4500);
+    return name;
+  }
+  function plainName(n) { return String(n || '').trim().replace(/[\\/:*?"<>|]+/g, '-') || 'marshrut'; }
+  // Изминатото като .gpx: пита за име на файла, после сваля. Следенето не спира.
+  function walkGpx(pts, routeName, title) {
+    if (!pts || pts.length < 2) return;
+    askName({ kind: 'walk', pts: pts.slice(), title: title || 'изминат ' + U.date(Date.now()), def: 'izminat-' + U.slug(routeName) + '-' + U.dateDots(Date.now()) });
+  }
+  // Маршрутът като .gpx: пита за име (предложено - името на маршрута); празен маршрут не пита.
+  function askRouteGpx(r) {
+    r = r || cur();
+    if (!routeGeo(r)) { toast('Маршрутът е празен - клик върху трак го слага в маршрута.', true); return; }
+    askName({ kind: 'route', routeId: r.id, def: plainName(r.name) });
+  }
+  // "Запази": същият прозорец, попълнен с името на маршрута.
+  function askSave() { askName({ kind: 'save', routeId: cur().id, def: plainName(cur().name) }); }
+  function nameDone() {
+    var job = ui.nameJob; if (!job) return;
+    ui.nameJob = null;
+    var name = fileNameOf(job);
+    if (job.kind === 'route') {
+      var r = S.routes.filter(function (x) { return x.id === job.routeId; })[0];
+      if (r) exportGpx(r, name);
+    } else if (job.kind === 'save') {
+      if (job.routeId === cur().id) saveRoute(name);
+    } else {
+      var xml = GPX.build({ name: job.title, pts: job.pts, wpts: [] });
+      U.download(new Blob([xml], { type: 'application/gpx+xml' }), name);
+      toast('Изнесен ' + name + ' · ' + U.km(U.lengthOf(job.pts)) + ', ' + U.num(job.pts.length) + ' точки', false, 4500);
+    }
+  }
+  /* Сваля <име>.gpx и записва текущия маршрут в "Записани маршрути" под същото име. Текущият
+     маршрут винаги е в списъка - преименува се той, втори запис не се прави. */
+  function saveRoute(fname) {
+    var r = cur(), name = fname.replace(/\.gpx$/i, '').trim() || r.name;
+    if (name !== r.name) {
+      r.name = name;
+      $('#routeName').value = name;
+      document.title = name + ' · GPX конструктор';
+    }
+    r.modified = Date.now();
+    var got = exportGpx(r, fname, true);
+    saveNow().then(function () {
+      renderRoutes();
+      if (got) toast('Свален ' + fname + ' · записан в „Записани маршрути“ като „' + name + '“', false, 5000);
+      else toast('Записан в „Записани маршрути“ като „' + name + '“. Маршрутът е празен - .gpx не е свален.', true);
+    });
   }
 
   // ---- Търсене на адрес (Nominatim) ----
@@ -2074,15 +2227,15 @@
       case 'add-tracks': openImport(); break;
       case 'load-collection': openImport(); break;
       case 'picture': openPicture(); break;
-      case 'export-gpx': exportGpx(); break;
+      case 'export-gpx': askRouteGpx(); break;
       case 'export-collection': exportCollection(); break;
-      case 'save': cur().modified = Date.now(); saveNow().then(function () { renderRoutes(); toast('Записано: ' + cur().name); }); break;
-      case 'follow': startFollow(); break;
+      case 'save': askSave(); break;
+      case 'follow': if (ui.follower) stopFollow(); else startFollow(); break;
       case 'follow-stop': stopFollow(); break;
       case 'awake': setAwake(!ui.awake); break;
       case 'walk-gpx': if (ui.follower) walkGpx(ui.follower.rec, ui.followName, 'изминат ' + U.date(Date.now())); break;
       case 'walk-gpx-done': if (ui.lastWalk) walkGpx(ui.lastWalk.pts, ui.lastWalk.name, ui.lastWalk.title); break;
-      case 'center': ui.autoCenter = true; if (ui.pos) map.setView(ui.pos.lat, ui.pos.lon, Math.max(map.zoom, 15)); followBearing(); break;
+      case 'center': centerMe(); break;
       case 'north': northUp(); break;
       case 'walkbar-close': if (ui.lastWalk) { ui.lastWalk.bar = false; U.DB.set('lastWalk', ui.lastWalk); } showWalk(); break;
       case 'walk-forget': forgetWalk(); $('#followPanel').hidden = true; break;
@@ -2146,7 +2299,7 @@
     });
     $('#nameForm').addEventListener('submit', function (e) {
       e.preventDefault();
-      walkGpxSave();
+      nameDone();
       $('#dlgName').close();
     });
     $('#dlgName').addEventListener('close', function () { ui.nameJob = null; });
@@ -2280,7 +2433,7 @@
       var b = e.target.closest('[data-rt]'); if (!b) return;
       var id = b.closest('tr').dataset.route, act = b.dataset.rt;
       if (act === 'open') { openRoute(id); window.scrollTo({ top: 0, behavior: 'smooth' }); }
-      else if (act === 'gpx') exportGpx(S.routes.filter(function (r) { return r.id === id; })[0]);
+      else if (act === 'gpx') askRouteGpx(S.routes.filter(function (r) { return r.id === id; })[0]);
       else if (act === 'del') deleteRoute(id);
     });
 

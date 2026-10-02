@@ -30,8 +30,8 @@
     <button class="btn pri" data-act="add-tracks" title="Добави .gpx тракове">Добави<span class="wide"> тракове</span></button>
     <button class="btn wide-only" data-act="picture">Картина</button>
     <button class="btn wide-only" data-act="export-gpx">Изнеси .gpx</button>
-    <button class="btn" data-act="follow" id="followBtn">Следене</button>
-    <button class="btn wide-only" data-act="save">Запази</button>
+    <button class="btn follow-btn" data-act="follow" id="followBtn" aria-pressed="false" aria-label="Следене - пусни следенето по GPS">Следене</button>
+    <button class="btn" data-act="save" title="Свали .gpx и запиши маршрута в „Записани маршрути“">Запази</button>
     <button class="btn ico" data-act="to-panel" title="Към числата под картата" aria-label="Към числата под картата">&#8595;</button>
     <button class="btn ico" data-act="hide-bar" id="hideBarBtn" title="Скрий горната лента" aria-label="Скрий горната лента">&#9650;</button>
   </div>
@@ -59,16 +59,17 @@
       <button data-orient="heading" class="on" title="Посоката на движение сочи нагоре">Посока</button>
       <button data-orient="north" title="Север сочи нагоре">Север</button>
     </div>
-    <button class="btn" data-act="center">Центрирай</button>
     <button class="btn awake-btn" data-act="awake" id="awakeBtn" aria-pressed="true" title="Екранът да не заспива, докато следиш"><span class="walk-w">Екранът </span>буден</button>
     <button class="btn" data-act="walk-gpx" id="walkGpxBtn" aria-disabled="true" title="Свали изминатото дотук като .gpx - следенето продължава"><span class="walk-w">Изнеси </span>.gpx</button>
-    <button class="btn danger" data-act="follow-stop">Стоп</button>
   </div>
 </header>
 
 <section id="mapwrap" class="mapwrap" aria-label="Карта">
   <div id="map" class="map"></div>
-  <button id="barHandle" class="barhandle" type="button" data-act="show-bar" aria-label="Покажи горната лента" title="Покажи горната лента" hidden><span aria-hidden="true">&#9660;</span> Лента</button>
+  <div class="maptl">
+    <button id="followMapBtn" class="barhandle follow-btn follow-fab" type="button" data-act="follow" aria-pressed="false" aria-label="Следене - пусни следенето по GPS">Следене</button>
+    <button id="barHandle" class="barhandle" type="button" data-act="show-bar" aria-label="Покажи горната лента" title="Покажи горната лента" hidden><span aria-hidden="true">&#9660;</span> Лента</button>
+  </div>
   <div class="mapctl tr">
     <div class="seg base" role="group" aria-label="Основа на картата">
       <button data-base="sat" class="on">Сателит</button>
@@ -76,11 +77,12 @@
     </div>
     <label class="chk" id="labelsChk"><input type="checkbox" id="labelsToggle" checked> Имена</label>
     <label class="chk" id="vtxChk" title="Кръгчетата и номерата на чертаните точки"><input type="checkbox" id="vtxToggle" checked> Точки</label>
-    <button id="northBtn" class="compass" type="button" data-act="north" title="Върни север нагоре" aria-label="Север - върни север нагоре" hidden><span class="rose" aria-hidden="true"><i class="needle"></i><b class="n">С</b></span>Север</button>
+    <button id="northBtn" class="compass" type="button" data-act="north" title="Върни север нагоре" aria-label="Север - върни север нагоре" hidden><span class="rose" aria-hidden="true"><i class="needle"></i><b class="n">С</b></span><span id="northLbl">Север</span></button>
   </div>
   <div class="mapctl br">
     <button class="btn ico" data-act="zoom-in" aria-label="Приближи">+</button>
     <button class="btn ico" data-act="zoom-out" aria-label="Отдалечи">&minus;</button>
+    <button class="btn center-btn" data-act="center" id="centerBtn" title="Центрирай върху положението ти от GPS">Центрирай</button>
     <button class="btn ico" data-act="fit" title="Покажи целия маршрут" aria-label="Покажи целия маршрут">&#9635;</button>
   </div>
   <div id="attrib" class="attrib"></div>
@@ -160,7 +162,7 @@
       <button class="btn" data-act="export-gpx">Изнеси .gpx</button>
       <button class="btn" data-act="picture">Картина</button>
       <button class="btn" data-act="save">Запази</button>
-      <button class="btn" data-act="follow">Следене</button>
+      <button class="btn follow-btn" data-act="follow" aria-pressed="false" aria-label="Следене - пусни следенето по GPS">Следене</button>
       <label class="tol">Отклонение <input type="text" class="tolInput num" inputmode="numeric" pattern="[0-9]*" maxlength="3" value="20" autocomplete="off" aria-label="Максимално допустимо отклонение в метри" title="Отклонение в метри, от 0 до 999. Enter прилага."> <span class="tol-unit">м</span></label>
     </div>
     <p class="hint">Клик върху сегмент го слага в маршрута като следваща част. Пръстенът е точка на прекъсване: клик върху клона, по който маршрутът да продължи, сменя посоката там. Дублиращите се участъци са извън маршрута, а общата отсечка между две части се минава веднъж. Посочването на ред в списъка светва същия сегмент на картата.</p>
@@ -318,7 +320,7 @@
     <div class="row end">
       <span class="muted small sp">Enter сваля, Escape затваря</span>
       <button class="btn" type="button" id="nameCancel">Отказ</button>
-      <button class="btn pri" type="submit" value="save">Свали</button>
+      <button class="btn pri" type="submit" value="save" id="nameOk">Свали</button>
     </div>
   </form>
 </dialog>
