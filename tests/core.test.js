@@ -417,3 +417,39 @@ console.log('общ участък OK');
   assert.deepStrictEqual(Core.walkGaps(pts.map(function (p) { return p.slice(0, 4); })), [], 'трак без точност (внесен .gpx) - без дупки');
   console.log('walkGaps: OK');
 })();
+// Изглаждане на записа от следене: праг 5 м, вмъкнатите точки и краищата остават, без нови дупки.
+(function () {
+  var m = function (lat, lon, acc, t) { return [lat, lon, 500, t || 0, acc === undefined ? 5 : acc]; };
+  var k = 1 / 111320; // ~1 м по ширина
+  // Права на изток по 2 м, с трептене до 2 м встрани: 301 точки, ~600 м.
+  var pts = [], i, dx = 2 / (111320 * Math.cos(42.5 * Math.PI / 180));
+  for (i = 0; i <= 300; i++) pts.push(m(42.5 + Math.sin(i * 1.7) * 2 * k, 24.7 + i * dx, 5, 1000 * i));
+  assert.strictEqual(Core.SMOOTH_M, 5);
+  assert.deepStrictEqual(Core.smoothWalk(pts, {}), pts, 'без отметки - същата следа');
+  assert.notStrictEqual(Core.smoothWalk(pts, {}), pts, 'нов масив - суровата следа не се пипа');
+  var side = Core.smoothWalk(pts, { side: true });
+  assert.ok(side.length < pts.length / 5, 'изглаждане: маха трептенето до 5 м (' + side.length + ' от ' + pts.length + ')');
+  assert.strictEqual(side[0], pts[0]); assert.strictEqual(side[side.length - 1], pts[pts.length - 1]);
+  assert.ok(side.every(function (p) { return pts.indexOf(p) >= 0; }), 'оставените точки са същите (височина, час, точност)');
+  assert.deepStrictEqual(Core.walkGaps(side), [], 'изглаждане: между оставените измерени точки няма над 40 м - без лъжлива дупка');
+  for (i = 1; i < side.length; i++) assert.ok(side[i][3] > side[i - 1][3], 'часовете остават поред');
+  // Точка на 12 м встрани остава.
+  var bump = pts.map(function (p) { return p.slice(); }); bump[150][0] += 12 * k;
+  assert.ok(Core.smoothWalk(bump, { side: true }).some(function (p) { return p[0] === bump[150][0]; }), 'отклонение над 5 м остава');
+  var dense = Core.smoothWalk(pts, { dense: true });
+  for (i = 1; i < dense.length - 1; i++) assert.ok(U.hav(dense[i - 1][0], dense[i - 1][1], dense[i][0], dense[i][1]) >= 5, 'гъсти точки: поредни оставени са поне на 5 м');
+  assert.ok(dense.length < pts.length * 0.75 && dense.length > pts.length / 4, 'гъсти точки: маха съседни под 5 м (' + dense.length + ')');
+  var both = Core.smoothWalk(pts, { side: true, dense: true });
+  assert.ok(both.length < dense.length && both.length >= 2 && !Core.walkGaps(both).length, "двете: " + both.length);
+  // Вмъкнатите при дупка (празна точност) и двете измерени около тях не се махат; дупката остава същата.
+  var gap = [m(42.5, 24.7), m(42.5, 24.70002), m(42.5, 24.70004), m(42.5, 24.70006),
+    m(42.5, 24.7012, null), m(42.5, 24.7024, null), m(42.5, 24.7036), m(42.5, 24.70362), m(42.5, 24.70364), m(42.5, 24.70366)];
+  var g2 = Core.smoothWalk(gap, { side: true, dense: true });
+  [3, 4, 5, 6].forEach(function (j) { assert.ok(g2.indexOf(gap[j]) >= 0, 'точка ' + j + ' около дупката остава'); });
+  assert.strictEqual(Core.walkGaps(g2).length, 1, 'дупката си е една');
+  assert.ok(g2.length < gap.length, 'гъстите по ~1,6 м извън дупката се махат');
+  // Внесен трак без точност - нищо не се маха.
+  var plain = pts.map(function (p) { return p.slice(0, 4); });
+  assert.strictEqual(Core.smoothWalk(plain, { side: true, dense: true }).length, plain.length);
+  console.log('smoothWalk: OK (' + pts.length + ' → изглаждане ' + side.length + ', гъсти ' + dense.length + ', двете ' + both.length + ')');
+})();

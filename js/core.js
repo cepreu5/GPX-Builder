@@ -1,4 +1,4 @@
-/* GPX конструктор - ядрото: изрязване, търсене на дублиращи се участъци,
+/* CX Tracks - ядрото: изрязване, търсене на дублиращи се участъци,
    разделяне на части, геометрия на сглобения маршрут. */
 (function () {
   'use strict';
@@ -846,12 +846,76 @@
     return out;
   }
 
+  /* Изглаждане на записа от следене (прозорецът при запис). Фиксиран праг SMOOTH_M:
+     opts.side - маха точките до толкова метра встрани от линията (Douglas-Peucker);
+     opts.dense - маха точка, по-близо от толкова метра до предишната оставена.
+     Пипат се само измерените точки: вмъкнатите при дупка (празна точност) и краищата остават,
+     а между две оставени измерени точки не остава повече от WALK_GAP - иначе walkGaps
+     би видял дупка там, където няма. Точките остават същите масиви (височина, час, точност). */
+  var SMOOTH_M = 5;
+  function smoothWalk(pts, opts) {
+    opts = opts || {};
+    var n = pts ? pts.length : 0;
+    if (n < 3 || (!opts.side && !opts.dense)) return (pts || []).slice();
+    var meas = function (p) { return p.length >= 5 && p[4] != null; };
+    var keep = [], i;
+    for (i = 0; i < n; i++) keep.push(true);
+    // Котви: краищата и всичко около вмъкнатото (празна точност) - не се маха и не се прескача.
+    var anchor = function (k) { return k === 0 || k === n - 1 || !meas(pts[k]) || !meas(pts[k - 1]) || !meas(pts[k + 1]); };
+    var maxSeg = WALK_GAP - 1;
+    if (opts.dense) {
+      var last = 0;
+      for (i = 1; i < n; i++) {
+        if (anchor(i)) { last = i; continue; }
+        if (U.hav(pts[last][0], pts[last][1], pts[i][0], pts[i][1]) < SMOOTH_M &&
+          U.hav(pts[last][0], pts[last][1], pts[i + 1][0], pts[i + 1][1]) <= maxSeg) keep[i] = false;
+        else last = i;
+      }
+    }
+    if (opts.side) {
+      // Douglas-Peucker по отрязъците между котвите, само върху още оставените точки.
+      var run = [];
+      var flush = function () {
+        if (run.length > 2) dp(run, 0, run.length - 1);
+        run = [];
+      };
+      var dp = function (ix, a, b) {
+        if (b - a < 2) return;
+        var A = pts[ix[a]], B = pts[ix[b]];
+        var kx = 111320 * Math.cos((A[0] + B[0]) / 2 * Math.PI / 180), ky = 110540;
+        var bx = (B[1] - A[1]) * kx, by = (B[0] - A[0]) * ky, L2 = bx * bx + by * by;
+        var worst = -1, wi = -1;
+        for (var k = a + 1; k < b; k++) {
+          var P = pts[ix[k]], px = (P[1] - A[1]) * kx, py = (P[0] - A[0]) * ky;
+          var t = L2 ? Math.max(0, Math.min(1, (px * bx + py * by) / L2)) : 0;
+          var d = Math.hypot(px - t * bx, py - t * by);
+          if (d > worst) { worst = d; wi = k; }
+        }
+        if (worst > SMOOTH_M || Math.sqrt(L2) > maxSeg) {
+          if (worst <= SMOOTH_M) wi = (a + b) >> 1; // дълго, но право - делим по средата
+          dp(ix, a, wi); dp(ix, wi, b);
+        } else {
+          for (var m = a + 1; m < b; m++) keep[ix[m]] = false;
+        }
+      };
+      for (i = 0; i < n; i++) {
+        if (!keep[i]) continue;
+        run.push(i);
+        if (anchor(i) && run.length > 1) { flush(); run.push(i); }
+      }
+      flush();
+    }
+    var out = [];
+    for (i = 0; i < n; i++) if (keep[i]) out.push(pts[i]);
+    return out;
+  }
+
   window.Core = {
     prep: prep, analyze: analyze, slice: slice, pointAt: pointAt, nearestOn: nearestOn, alongOn: alongOn,
     nearestOnTrack: nearestOnTrack, invalidShare: invalidShare, routeGeometry: routeGeometry,
     trackBounds: trackBounds, overlap: overlap, ROUTE_GAP: ROUTE_GAP, LINK_MIN: LINK_MIN, DUP_BRIDGE: DUP_BRIDGE,
     routeForks: routeForks, switchFork: switchFork, branchProbe: branchProbe,
-    mergeIv: mergeIv, trimItems: trimItems, walkGaps: walkGaps, WALK_GAP: WALK_GAP,
+    mergeIv: mergeIv, trimItems: trimItems, walkGaps: walkGaps, WALK_GAP: WALK_GAP, smoothWalk: smoothWalk, SMOOTH_M: SMOOTH_M,
     joinTol: function (tol) { return Math.max(ROUTE_GAP, 1.5 * (tol || 20)); }
   };
 })();
