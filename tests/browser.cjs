@@ -22,9 +22,10 @@ const server = http.createServer((req, res) => {
 let failures = 0;
 function check(ok, msg) { console.log((ok ? 'OK   ' : 'FAIL ') + msg); if (!ok) failures++; }
 // Изпълняват се в страницата.
+// Групата горе вляво ("↓", "Лента", "Следене") срещу реда горе вдясно: първото копче е на реда, групата не застъпва реда.
 function handleRow() {
-  const a = document.querySelector('#barHandle').getBoundingClientRect(), b = document.querySelector('.mapctl.tr').getBoundingClientRect();
-  return { sameRow: a.top < b.bottom && b.top < a.bottom, xOverlap: !(a.right <= b.left || b.right <= a.left), info: Math.round(a.left) + '-' + Math.round(a.right) + ' / ' + Math.round(b.left) + '-' + Math.round(b.right) + ' px, y ' + Math.round(a.top) + '/' + Math.round(b.top) };
+  const f = document.querySelector('#toPanelBtn').getBoundingClientRect(), a = document.querySelector('.maptl').getBoundingClientRect(), b = document.querySelector('.mapctl.tr').getBoundingClientRect();
+  return { sameRow: f.top < b.bottom && b.top < f.bottom, xOverlap: !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top), info: Math.round(a.left) + '-' + Math.round(a.right) + ' / ' + Math.round(b.left) + '-' + Math.round(b.right) + ' px, y ' + Math.round(a.top) + '/' + Math.round(b.top) };
 }
 function vis(sel) {
   const e = document.querySelector(sel); if (!e) return null;
@@ -49,10 +50,11 @@ function rotState() {
 }
 // Копчето "Следене / Стоп" върху картата: видимо, текст, състояние и място спрямо "Лента" и контролите вдясно.
 function fabState() {
-  const b = document.querySelector('#followMapBtn'), r = b.getBoundingClientRect(), t = document.querySelector('.mapctl.tr').getBoundingClientRect(), h = document.querySelector('#barHandle').getBoundingClientRect();
+  const b = document.querySelector('#followMapBtn'), r = b.getBoundingClientRect(), t = document.querySelector('.mapctl.tr').getBoundingClientRect();
+  const hit = h => !(r.right <= h.left || h.right <= r.left || r.bottom <= h.top || h.bottom <= r.top), h = document.querySelector('#barHandle').getBoundingClientRect(), d = document.querySelector('#toPanelBtn').getBoundingClientRect();
   return { shown: r.width > 0 && getComputedStyle(b).display !== 'none', text: b.textContent.trim(), pressed: b.getAttribute('aria-pressed'), label: b.getAttribute('aria-label'), danger: b.classList.contains('danger'),
     left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top),
-    overTr: !(r.right <= t.left || t.right <= r.left || r.bottom <= t.top || t.bottom <= r.top), overHandle: !(r.right <= h.left || h.right <= r.left || r.bottom <= h.top || h.bottom <= r.top) };
+    overTr: !(r.right <= t.left || t.right <= r.left || r.bottom <= t.top || t.bottom <= r.top), overHandle: hit(h) || hit(d), afterHandle: r.left >= h.right - 0.5 || r.top >= h.bottom - 0.5 };
 }
 // Пиксели върху картата по линия (lat/lon): колко са в цвета col1 и колко в col2 (с толеранс).
 function lineColors(pts, col1, col2) {
@@ -184,12 +186,12 @@ function barFits() {
   await page.press('#bar .tolInput', 'Tab');
   await page.waitForFunction(() => __gpxk.A.tol === 20, null, { timeout: 3000 }).catch(() => {});
   check(await page.evaluate(() => __gpxk.A.tol === 20), 'при излизане от полето: 20 м, картата се преизчислява');
-  const lay = await page.evaluate(() => { const f = document.querySelector('#searchForm'), seg = document.querySelector('#tools .seg'); return { inTools: f.parentElement.id === 'tools', right: f.getBoundingClientRect().left >= seg.getBoundingClientRect().right, undoRow1: document.querySelector('#undoBtn').parentElement === document.querySelector('#bar .bar-row:first-child'), tolRow1: document.querySelector('#bar .tolInput').closest('.bar-row') === document.querySelector('#bar .bar-row:first-child'), firstTol: document.querySelector('.tolInput').closest('#bar') !== null }; });
+  const lay = await page.evaluate(() => { const f = document.querySelector('#searchForm'), seg = document.querySelector('#tools .seg'); return { inTools: f.parentElement.id === 'tools', right: f.getBoundingClientRect().left >= seg.getBoundingClientRect().right, undoMap: !!document.querySelector('.mapctl.tr #undoBtn') && !document.querySelector('#bar [data-act="undo"]'), tolRow1: document.querySelector('#bar .tolInput').closest('.bar-row') === document.querySelector('#bar .bar-row:first-child'), firstTol: document.querySelector('.tolInput').closest('#bar') !== null }; });
   check(await page.isVisible('#searchForm') && lay.inTools && lay.right, 'на 1280 px търсенето се вижда, във втория ред, вдясно от режимите');
-  check(lay.undoRow1 && lay.tolRow1 && lay.firstTol, '"Отмени" и полето "Отклонение" са в първия ред (полето в лентата е първото .tolInput)');
+  check(lay.undoMap && lay.tolRow1 && lay.firstTol, '"Отмени" е горе вдясно на картата, не в лентата; полето "Отклонение" е в първия ред (полето в лентата е първото .tolInput)');
 
   // Скриване на лентата с цъкане на празно място и връщане с табчето горе.
-  check(await page.isHidden('#barHandle'), 'лентата се вижда: табчето горе е скрито');
+  check(await page.isVisible('#barHandle') && await page.evaluate(() => { const h = document.querySelector('#barHandle'); return h.dataset.dir === 'up' && h.getAttribute('aria-label') === 'Скрий горната лента' && h.getBoundingClientRect().top >= document.querySelector('#bar').getBoundingClientRect().bottom; }), 'лентата се вижда: кръглата "Лента" е под нея, стрелкичката сочи нагоре');
   const emptyPt = await screenOf(() => {
     const m = __gpxk.map, pts = [];
     __gpxk.S.tracks.forEach(t => t.pts.forEach(p => pts.push(m.project(p[0], p[1]))));
@@ -204,11 +206,12 @@ function barFits() {
   check(await page.evaluate(() => document.body.classList.contains('bar-hidden')), 'цъкане на празно място: лентата се скрива (bar-hidden)');
   check(await page.evaluate(n => __gpxk.S.routes.find(r => r.id === __gpxk.S.curId).items.length === n, items0), 'цъкането на празно място не пипа маршрута');
   check(await page.isVisible('#barHandle'), 'табчето "Лента" се вижда');
-  const hb = await page.evaluate(() => { const b = document.querySelector('#barHandle'), r = b.getBoundingClientRect(); return { w: r.width, h: r.height, top: r.top, left: r.left, tag: b.tagName, label: b.getAttribute('aria-label'), text: b.textContent.trim() }; });
-  check(hb.tag === 'BUTTON' && hb.label === 'Покажи горната лента' && /▼ Лента/.test(hb.text), 'табчето е бутон с aria-label: ' + hb.label + ' / ' + hb.text);
-  check(hb.w >= 44 && hb.h >= 28 && hb.top <= 14 && hb.left <= 120, 'табчето: ' + Math.round(hb.w) + 'x' + Math.round(hb.h) + ' px, горе вляво (' + Math.round(hb.left) + ',' + Math.round(hb.top) + ')');
+  await page.waitForFunction(() => document.querySelector('#barHandle').getBoundingClientRect().top <= 14, null, { timeout: 3000 }).catch(() => {});
+  const hb = await page.evaluate(() => { const b = document.querySelector('#barHandle'), r = b.getBoundingClientRect(); return { w: r.width, h: r.height, top: r.top, left: r.left, tag: b.tagName, label: b.getAttribute('aria-label'), text: b.textContent.trim(), dir: b.dataset.dir }; });
+  check(hb.tag === 'BUTTON' && hb.label === 'Покажи горната лента' && hb.text === '' && hb.dir === 'down', 'табчето е бутон без дума, с aria-label: ' + hb.label + ', стрелкичката сочи ' + hb.dir);
+  check(hb.w === 36 && hb.h === 36 && hb.top <= 14 && hb.left <= 120, 'табчето: ' + Math.round(hb.w) + 'x' + Math.round(hb.h) + ' px, горе вляво (' + Math.round(hb.left) + ',' + Math.round(hb.top) + ')');
   const fab = await page.evaluate(fabState);
-  check(fab.shown && fab.text === 'Следене' && fab.pressed === 'false' && fab.left <= 12 && fab.right <= hb.left && !fab.overTr, 'при скрита лента копчето "Следене" е върху картата горе вляво, до "Лента": ' + JSON.stringify(fab));
+  check(fab.shown && fab.text === 'Следене' && fab.pressed === 'false' && fab.left >= hb.left + hb.w && !fab.overTr && !fab.overHandle, 'при скрита лента копчето "Следене" е върху картата горе вляво, вдясно от "Лента": ' + JSON.stringify(fab));
   await page.waitForFunction(() => document.querySelector('.mapctl.tr').getBoundingClientRect().top < 20, null, { timeout: 3000 }).catch(() => {});
   const row1280 = await page.evaluate(handleRow);
   check(row1280.sameRow && !row1280.xOverlap, 'на 1280 px табчето и "Сателит / Топо / Имена" са на един ред и не се застъпват: ' + row1280.info);
@@ -221,19 +224,16 @@ function barFits() {
   check(await page.evaluate(() => !document.body.classList.contains('bar-hidden')), 'клик върху табчето: лентата се връща');
   await page.waitForFunction(() => document.querySelector('#bar').getBoundingClientRect().top >= 0, null, { timeout: 3000 }).catch(() => {});
   check(await page.isVisible('#bar [data-act="add-tracks"]') && await page.evaluate(() => document.querySelector('#bar').getBoundingClientRect().top >= 0), 'горната лента е видима');
-  check(await page.isHidden('#barHandle') && await page.evaluate(() => document.querySelector('#barHandle').hidden), 'табчето пак е скрито (hidden)');
-  // Видимо копче за скриване в самата лента.
-  const hbtn = await page.evaluate(() => { const b = document.querySelector('#hideBarBtn'), r = b.getBoundingClientRect(); return { tag: b.tagName, act: b.dataset.act, label: b.getAttribute('aria-label'), title: b.getAttribute('title'), text: b.textContent.trim(), w: r.width, h: r.height, wide: b.classList.contains('wide-only') }; });
-  check(hbtn.tag === 'BUTTON' && hbtn.act === 'hide-bar' && /Скрий горната лента/.test(hbtn.label) && /Скрий горната лента/.test(hbtn.title) && hbtn.text === '\u25B2' && !hbtn.wide, 'копче за скриване: бутон ' + hbtn.text + ', aria-label/title: ' + hbtn.label);
-  check(await page.isVisible('#hideBarBtn') && hbtn.w >= 30 && hbtn.h >= 24, 'копчето за скриване се вижда: ' + Math.round(hbtn.w) + 'x' + Math.round(hbtn.h) + ' px');
-  await page.click('#hideBarBtn');
-  check(await page.evaluate(() => document.body.classList.contains('bar-hidden')), 'клик върху копчето за скриване: лентата се скрива (bar-hidden)');
-  check(await page.isVisible('#barHandle'), 'след копчето за скриване табчето "Лента" се вижда');
+  check(await page.isVisible('#barHandle') && await page.evaluate(() => document.querySelector('#barHandle').dataset.dir === 'up'), 'кръглата "Лента" остава, стрелкичката пак сочи нагоре');
+  // В лентата няма отделно копче за скриване: кръглата "Лента" и скрива, и връща.
+  const nob = await page.evaluate(() => ({ hide: !!document.querySelector('#hideBarBtn, #bar [data-act="hide-bar"], #bar [data-act="to-panel"], #bar [data-act="undo"]'), arrows: /[\u25B2\u25BC\u2193]/.test(document.querySelector('#bar').textContent) }));
+  check(!nob.hide && !nob.arrows, 'в лентата няма "Отмени", "↓" и "▲" (копчето за скриване): ' + JSON.stringify(nob));
+  await page.click('#barHandle');
+  check(await page.evaluate(() => document.body.classList.contains('bar-hidden') && document.querySelector('#barHandle').dataset.dir === 'down'), 'клик върху кръглата "Лента" при отворена лента: лентата се скрива, стрелкичката се обръща надолу');
   await page.waitForFunction(() => document.querySelector('#bar').getBoundingClientRect().bottom <= 0, null, { timeout: 3000 }).catch(() => {});
   await page.click('#barHandle');
   await page.waitForFunction(() => document.querySelector('#bar').getBoundingClientRect().top >= 0, null, { timeout: 3000 }).catch(() => {});
-  check(await page.evaluate(() => !document.body.classList.contains('bar-hidden') && document.querySelector('#barHandle').hidden), 'табчето връща лентата след копчето за скриване');
-  check(await page.isVisible('#hideBarBtn'), 'копчето за скриване пак се вижда');
+  check(await page.evaluate(() => !document.body.classList.contains('bar-hidden') && document.querySelector('#barHandle').dataset.dir === 'up'), 'второ натискане връща лентата, стрелкичката пак сочи нагоре');
   // Второ скриване: без подсказка; връщане с ново цъкане на празно място.
   await page.evaluate(() => { document.querySelector('#toast').hidden = true; });
   await page.mouse.click(emptyPt.x, emptyPt.y);
@@ -242,7 +242,7 @@ function barFits() {
   await page.waitForTimeout(400);
   await page.mouse.click(emptyPt.x, emptyPt.y);
   await page.waitForFunction(() => !document.body.classList.contains('bar-hidden'), null, { timeout: 3000 }).catch(() => {});
-  check(await page.evaluate(() => !document.body.classList.contains('bar-hidden') && document.querySelector('#barHandle').hidden), 'ново цъкане на празно място: лентата се връща, табчето се скрива');
+  check(await page.evaluate(() => !document.body.classList.contains('bar-hidden') && document.querySelector('#barHandle').dataset.dir === 'up'), 'ново цъкане на празно място: лентата се връща, стрелкичката сочи нагоре');
 
   // Изрязване с две точки по трака.
   await page.click('[data-mode="cut"]');
@@ -264,8 +264,8 @@ function barFits() {
   // Ключ „Точки“: скрива кръгчетата и номерата на чертаните точки, избраната остава, скритите се хващат.
   const draws = () => page.evaluate(() => { const r = __gpxk.S.routes.find(r => r.id === __gpxk.S.curId), i = r.items.findIndex(i => i.type === 'draw'); return { idx: i, n: i < 0 ? 0 : r.items[i].pts.length, pts: i < 0 ? [] : r.items[i].pts.map(p => ({ lat: p.lat, lon: p.lon })) }; });
   const vtxNow = () => page.evaluate(() => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(() => res((__gpxk.ui.vtx || []).map(v => ({ sel: v.sel, label: v.label, x: Math.round(v.x), y: Math.round(v.y) })))))));
-  const vtc = await page.evaluate(() => { const e = document.querySelector('#vtxToggle'), l = e && e.closest('label'), r = l && l.getBoundingClientRect(); return e ? { checked: e.checked, type: e.type, text: l.textContent.trim(), inCorner: !!e.closest('.mapctl.tr'), w: r.width } : null; });
-  check(vtc && vtc.type === 'checkbox' && vtc.checked && vtc.text === 'Точки' && vtc.inCorner && vtc.w > 0, 'ключ „Точки“ горе вдясно на картата, включен по подразбиране: ' + JSON.stringify(vtc));
+  const vtc = await page.evaluate(() => { const e = document.querySelector('#vtxToggle'), l = e && e.closest('label'), r = l && l.getBoundingClientRect(); return e ? { checked: e.checked, type: e.type, text: l.textContent.trim(), label: e.getAttribute('aria-label'), ring: !!l.querySelector('svg circle'), inCorner: !!e.closest('.mapctl.tr'), w: r.width } : null; });
+  check(vtc && vtc.type === 'checkbox' && vtc.checked && !/Точки/.test(vtc.text) && vtc.ring && vtc.label === 'Точки' && vtc.inCorner && vtc.w > 0, 'ключ „Точки“ горе вдясно на картата, без дума (чавка и пръстен с номер), включен по подразбиране: ' + JSON.stringify(vtc));
   await page.mouse.click(760, 470); await page.mouse.click(820, 520);
   let dr = await draws();
   check(dr.n === 3, 'Добавяне: три чертани точки (' + dr.n + ')');
@@ -415,8 +415,8 @@ function barFits() {
   await page.screenshot({ path: path.join(OUT, 'follow-pic-1280.png') });
   await page.click('#followBar [data-view="map"]');
   await page.screenshot({ path: path.join(OUT, 'follow-map-1280.png') });
-  check(await page.isVisible('#followBar') && await page.isVisible('#hideBarBtn'), 'следене: копчето за скриване на лентата се вижда');
-  await page.click('#hideBarBtn');
+  check(await page.isVisible('#followBar') && await page.isVisible('#barHandle') && await page.evaluate(() => document.querySelector('#barHandle').getBoundingClientRect().top >= document.querySelector('#bar').getBoundingClientRect().bottom), 'следене: кръглата "Лента" се вижда под лентата');
+  await page.click('#barHandle');
   check(await page.evaluate(() => document.body.classList.contains('bar-hidden') && !!__gpxk.ui.follower), 'следене: копчето скрива лентата, следенето продължава');
   const fab2 = await page.evaluate(fabState);
   check(fab2.shown && fab2.text === 'Стоп' && fab2.danger && fab2.pressed === 'true' && /Стоп/.test(fab2.label) && !fab2.overTr && !fab2.overHandle, 'скрита лента при следене: "Стоп" върху картата горе вляво - ' + JSON.stringify(fab2));
@@ -547,11 +547,11 @@ function barFits() {
   await page.screenshot({ path: path.join(OUT, 'panel-1280-dark.png') });
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: path.join(OUT, 'route-1280-dark.png') });
-  await page.evaluate(() => { document.body.classList.add('bar-hidden'); document.querySelector('#barHandle').hidden = false; });
+  await page.click('#barHandle');
   await page.waitForTimeout(300);
   await page.screenshot({ path: path.join(OUT, 'bar-hidden-1280-dark.png') });
   await page.click('#barHandle');
-  check(await page.evaluate(() => !document.body.classList.contains('bar-hidden') && document.querySelector('#barHandle').hidden), 'тъмна тема: табчето връща лентата');
+  check(await page.evaluate(() => !document.body.classList.contains('bar-hidden') && document.querySelector('#barHandle').dataset.dir === 'up'), 'тъмна тема: табчето връща лентата');
   await page.click('[data-act="theme"]');
 
   // Телефон: 390 px.
@@ -564,7 +564,7 @@ function barFits() {
   check(sv390.shown && sv390.l >= 0 && sv390.r <= 390, 'на 390 px "Запази" се вижда в горната лента (' + Math.round(sv390.l) + '-' + Math.round(sv390.r) + ' px)');
   check(c390.shown && c390.r <= 390, 'на 390 px "Центрирай" се вижда долу вдясно');
   await page.screenshot({ path: path.join(OUT, 'route-390.png') });
-  await page.evaluate(() => { document.body.classList.add('bar-hidden'); document.querySelector('#barHandle').hidden = false; });
+  await page.click('#barHandle');
   await page.waitForTimeout(300);
   await page.waitForFunction(() => document.querySelector('.mapctl.tr').getBoundingClientRect().top < 20, null, { timeout: 3000 }).catch(() => {});
   const row390 = await page.evaluate(handleRow);
@@ -577,33 +577,33 @@ function barFits() {
   await page.setViewportSize({ width: 380, height: 800 });
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForFunction(() => document.querySelector('#bar').getBoundingClientRect().top >= 0, null, { timeout: 3000 }).catch(() => {});
-  const nb = await page.evaluate(() => { const r = document.querySelector('#hideBarBtn').getBoundingClientRect(); return { l: r.left, r: r.right, w: r.width }; });
-  check(await page.isVisible('#hideBarBtn') && nb.w > 0 && nb.l >= 0 && nb.r <= 380, 'на 380 px копчето за скриване се вижда (' + Math.round(nb.l) + '-' + Math.round(nb.r) + ' px)');
+  const nb = await page.evaluate(() => { const r = document.querySelector('#barHandle').getBoundingClientRect(); return { l: r.left, r: r.right, w: r.width, below: r.top >= document.querySelector('#bar').getBoundingClientRect().bottom }; });
+  check(await page.isVisible('#barHandle') && nb.w > 0 && nb.l >= 0 && nb.r <= 380 && nb.below, 'на 380 px кръглата "Лента" се вижда под лентата (' + Math.round(nb.l) + '-' + Math.round(nb.r) + ' px)');
   const u380 = await page.evaluate(vis, '#undoBtn'), t380 = await page.evaluate(vis, '#bar .tolInput'), s380 = await page.evaluate(vis, '#searchForm');
-  check(u380.shown && u380.l >= 0 && u380.r <= 380, 'на 380 px "Отмени" се вижда изцяло (' + Math.round(u380.l) + '-' + Math.round(u380.r) + ' px)');
+  check(u380.shown && u380.l >= 0 && u380.r <= 380, 'на 380 px "Отмени" горе вдясно на картата се вижда изцяло (' + Math.round(u380.l) + '-' + Math.round(u380.r) + ' px)');
   check(t380.shown && t380.w >= 36 && t380.l >= 0 && t380.r <= 380, 'на 380 px полето "Отклонение" се вижда: ' + Math.round(t380.w) + ' px, ' + Math.round(t380.l) + '-' + Math.round(t380.r));
   check(!s380.shown && await page.isHidden('#searchForm'), 'на 380 px търсенето е скрито');
   const bar380 = await page.evaluate(() => ({ bar: document.querySelector('#bar').getBoundingClientRect().bottom, tr: document.querySelector('.mapctl.tr').getBoundingClientRect().top }));
   check(bar380.bar <= 122 && bar380.bar <= bar380.tr, 'на 380 px лентата е ' + Math.round(bar380.bar) + ' px висока и не покрива "Сателит / Топо" (' + Math.round(bar380.tr) + ')');
   await page.screenshot({ path: path.join(OUT, 'bar-380.png') });
-  await page.click('#hideBarBtn');
+  await page.click('#barHandle');
   await page.waitForFunction(() => document.querySelector('#bar').getBoundingClientRect().bottom <= 0, null, { timeout: 3000 }).catch(() => {});
   await page.waitForFunction(() => document.querySelector('.mapctl.tr').getBoundingClientRect().top < 20, null, { timeout: 3000 }).catch(() => {});
   const row380 = await page.evaluate(handleRow);
   check(row380.sameRow && !row380.xOverlap, 'на 380 px табчето и "Сателит / Топо / Имена" са на един ред и не се застъпват: ' + row380.info);
   const fab380 = await page.evaluate(fabState);
   check(fab380.shown && !fab380.overTr && !fab380.overHandle, 'на 380 px "Следене" върху картата не застъпва нищо: ' + JSON.stringify(fab380));
-  const ov2 = await page.evaluate(() => { const a = document.querySelector('#barHandle').getBoundingClientRect(), b = document.querySelector('#hideBarBtn').getBoundingClientRect(); return !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top); });
-  check(await page.evaluate(() => document.body.classList.contains('bar-hidden')) && await page.isVisible('#barHandle') && !ov2, 'на 380 px: лентата скрита, табчето се вижда и не се застъпва с копчето за скриване');
+  const st2 = await page.evaluate(() => { const [a, b, c] = ['#toPanelBtn', '#barHandle', '#followMapBtn'].map(s => document.querySelector(s).getBoundingClientRect()); return a.bottom <= b.top && b.bottom <= c.top && Math.abs(a.left - b.left) < 1 && Math.abs(b.left - c.left) < 1; });
+  check(await page.evaluate(() => document.body.classList.contains('bar-hidden')) && await page.isVisible('#barHandle') && st2, 'на 380 px: лентата скрита, "↓", "Лента" и "Следене" са в стълбичка едно под друго');
   await page.screenshot({ path: path.join(OUT, 'bar-hidden-380.png') });
   await page.click('#barHandle');
-  check(await page.evaluate(() => !document.body.classList.contains('bar-hidden')) && await page.isVisible('#hideBarBtn'), 'на 380 px табчето връща лентата и копчето пак се вижда');
+  check(await page.evaluate(() => !document.body.classList.contains('bar-hidden') && document.querySelector('#barHandle').dataset.dir === 'up'), 'на 380 px табчето връща лентата, стрелкичката сочи нагоре');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => document.querySelector('#panel').scrollIntoView());
   await page.screenshot({ path: path.join(OUT, 'panel-390.png') });
   await page.screenshot({ path: path.join(OUT, 'panel-390-full.png'), fullPage: true });
 
-  // Първият ред на лентата не прелива при никоя ширина; "Отмени" и полето "Отклонение" винаги са на екрана.
+  // Първият ред на лентата не прелива при никоя ширина; "Отмени" (на картата) и полето "Отклонение" винаги са на екрана.
   await page.evaluate(() => window.scrollTo(0, 0));
   let sweepOk = true;
   for (const w of [320, 380, 560, 561, 640, 700, 760, 761, 900, 1060, 1061, 1100, 1200, 1201, 1280, 1440]) {
@@ -620,12 +620,12 @@ function barFits() {
   // 1.1.2: иконите вместо думи, "Имена" в лентата, стрелката нагоре.
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.evaluate(() => window.scrollTo(0, 0));
-  const icos = await page.evaluate(() => ['.seg.base [data-base="sat"]', '.seg.base [data-base="topo"]', '#centerBtn'].map(s => { const b = document.querySelector(s); return { s, svg: !!b.querySelector('svg'), text: b.textContent.trim(), label: b.getAttribute('aria-label'), title: b.getAttribute('title') }; }));
+  const icos = await page.evaluate(() => ['.seg.base [data-base="sat"]', '.seg.base [data-base="topo"]', '#centerBtn'].map(s => { const b = document.querySelector(s); return { s, svg: !!b.querySelector('svg'), radar: b.querySelectorAll('svg circle').length === 3 && !b.querySelector('svg rect'), text: b.textContent.trim(), label: b.getAttribute('aria-label'), title: b.getAttribute('title') }; }));
   check(icos.every(i => i.svg && i.text === '' && i.label && i.title), 'Сателит, Топо и Центрирай са икони <svg> без дума, с aria-label и title: ' + icos.map(i => i.label).join(' / '));
-  check(icos[0].label === 'Сателит' && icos[1].label === 'Топо' && /^Центрирай/.test(icos[2].label), 'имената на иконите за екранни четци са на място');
-  const lbl = await page.evaluate(() => { const t = document.querySelector('#labelsToggle'), c = document.querySelector('#labelsChk').getBoundingClientRect(), sv = document.querySelector('#bar [data-act="save"]').getBoundingClientRect(), tp = document.querySelector('#bar [data-act="to-panel"]').getBoundingClientRect();
-    return { inBar: !!t.closest('#bar'), inTr: !!t.closest('.mapctl.tr'), type: t.type, text: document.querySelector('#labelsChk').textContent.trim(), right: c.left >= sv.right, beforeArrow: c.right <= tp.left, sameRow: c.top < sv.bottom && sv.top < c.bottom, prev: document.querySelector('#labelsChk').previousElementSibling.dataset.act, vtxOnMap: !!document.querySelector('.mapctl.tr #vtxToggle') }; });
-  check(lbl.inBar && !lbl.inTr && lbl.type === 'checkbox' && lbl.text === 'Имена' && lbl.right && lbl.beforeArrow && lbl.sameRow && lbl.prev === 'save' && lbl.vtxOnMap, '„Имена“ е квадратче в първия ред на лентата, вдясно от „Запази“ и преди стрелката надолу; „Точки“ остава на картата: ' + JSON.stringify(lbl));
+  check(icos[0].label === 'Сателит' && icos[0].radar && icos[1].label === 'Топо' && /^Центрирай/.test(icos[2].label), 'имената на иконите за екранни четци са на място');
+  const lbl = await page.evaluate(() => { const t = document.querySelector('#labelsToggle'), c = document.querySelector('#labelsChk').getBoundingClientRect(), sv = document.querySelector('#bar [data-act="save"]').getBoundingClientRect();
+    return { inBar: !!t.closest('#bar'), inTr: !!t.closest('.mapctl.tr'), type: t.type, text: document.querySelector('#labelsChk').textContent.trim(), right: c.left >= sv.right, last: !document.querySelector('#labelsChk').nextElementSibling, sameRow: c.top < sv.bottom && sv.top < c.bottom, prev: document.querySelector('#labelsChk').previousElementSibling.dataset.act, vtxOnMap: !!document.querySelector('.mapctl.tr #vtxToggle') }; });
+  check(lbl.inBar && !lbl.inTr && lbl.type === 'checkbox' && lbl.text === 'Имена' && lbl.right && lbl.last && lbl.sameRow && lbl.prev === 'save' && lbl.vtxOnMap, '„Имена“ е квадратче в първия ред на лентата, вдясно от „Запази“ и последно в реда; „Точки“ остава на картата: ' + JSON.stringify(lbl));
   const layN = () => page.evaluate(() => ({ n: __gpxk.map.layers.length, chk: document.querySelector('#labelsToggle').checked, ls: localStorage.getItem('gpxk.labels') }));
   const lay0 = await layN();
   await page.click('#labelsToggle');
@@ -665,6 +665,47 @@ function barFits() {
     await page.evaluate(() => document.querySelector('#toTopBtn').click());
     const back = await page.waitForFunction(() => window.scrollY === 0, null, { timeout: 4000 }).then(() => 0, () => page.evaluate(() => window.scrollY));
     check(back === 0 && await page.evaluate(() => document.querySelector('#mapwrap').getBoundingClientRect().top === 0), 'на ' + w + ' px клик на стрелката от дъното връща scrollY 0 и картата е на екрана (' + back + ')');
+  }
+  // 1.1.4: радар, кръглата "Лента", "↓" на картата, "Отмени" горе вдясно, "Точки" без дума, по-широко име.
+  function tl114() {
+    const R = s => document.querySelector(s).getBoundingClientRect(), hit = (p, q) => q.width > 0 && !(p.right <= q.left || q.right <= p.left || p.bottom <= q.top || q.bottom <= p.top);
+    const kids = [...document.querySelector('.maptl').children].map(e => e.id), d = R('#toPanelBtn'), h = R('#barHandle'), f = R('#followMapBtn'), bar = R('#bar'), tr = R('.mapctl.tr');
+    const hb = document.querySelector('#barHandle'), u = document.querySelector('#undoBtn'), sat = document.querySelector('.seg.base [data-base="sat"]');
+    return { kids: kids.join(','), dir: hb.dataset.dir, arr: hb.querySelector('.bt-arr').getAttribute('d'), squares: hb.querySelectorAll('svg rect').length, round: [d, h].every(r => Math.round(r.width) === 36 && Math.round(r.height) === 36) && getComputedStyle(hb).borderRadius === '50%',
+      hText: hb.textContent.trim(), dText: document.querySelector('#toPanelBtn').textContent.trim(), dSvg: !!document.querySelector('#toPanelBtn svg'),
+      row: d.right <= h.left && Math.abs(d.top - h.top) < 1, col: d.bottom <= h.top && Math.abs(d.left - h.left) < 1, fShown: f.width > 0, fAfter: f.left >= h.right - 0.5 || f.top >= h.bottom - 0.5,
+      below: d.top >= bar.bottom - 0.5 || bar.bottom <= 0, overTr: [d, h, f].some(r => hit(r, tr)), inScreen: [d, h].every(r => r.left >= 0 && r.right <= innerWidth),
+      radar: sat.querySelectorAll('svg circle').length === 3 && !sat.querySelector('svg rect') && sat.textContent.trim() === '',
+      undoPos: u.parentElement.classList.contains('tr') && u.previousElementSibling.classList.contains('base') && u.nextElementSibling.id === 'vtxChk', undoSvg: !!u.querySelector('svg') && u.textContent.trim() === '' && u.getAttribute('aria-label') === 'Отмени',
+      undoH: Math.abs(R('#undoBtn').height - R('.seg.base').height) <= 2, undoOn: hit(R('#undoBtn'), R('#undoBtn')) && R('#undoBtn').right <= innerWidth,
+      vtxWord: /Точки/.test(document.querySelector('#vtxChk').textContent), name: Math.round(R('#routeName').width) };
+  }
+  for (const w of [360, 560, 760, 1440]) {
+    await page.setViewportSize({ width: w, height: 800 });
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await page.waitForFunction(() => document.querySelector('#bar').getBoundingClientRect().top >= 0 && !document.body.classList.contains('bar-hidden'), null, { timeout: 3000 }).catch(() => {});
+    // Копчетата слизат плавно (transition на top): чакаме да застанат.
+    const settle = () => page.evaluate(() => new Promise(res => { let last = null, n = 0; (function f() { const t = document.querySelector('.maptl').getBoundingClientRect().top + ',' + document.querySelector('#bar').getBoundingClientRect().bottom; n = t === last ? n + 1 : 0; last = t; n >= 3 ? res() : requestAnimationFrame(f); })(); }));
+    await settle();
+    const narrow = w <= 560, A = await page.evaluate(tl114);
+    check(A.kids === 'toPanelBtn,barHandle,followMapBtn' && A.round && A.dSvg && A.dText === '' && A.hText === '' && A.squares === 3 && (narrow ? A.col : A.row) && A.below && !A.overTr && A.inScreen,
+      'на ' + w + ' px горе вляво: "↓", после кръглата "Лента" (три квадратчета), ' + (narrow ? 'в стълбичка' : 'в редица') + ', под лентата, не застъпват реда вдясно: ' + JSON.stringify({ kids: A.kids, row: A.row, col: A.col, below: A.below }));
+    check(A.dir === 'up' && /12 13l3\.2 3\.2/.test(A.arr) && !A.fShown, 'на ' + w + ' px при отворена лента стрелкичката сочи нагоре, "Следене" не е на картата');
+    check(A.radar && A.undoPos && A.undoSvg && A.undoH && A.undoOn && !A.vtxWord, 'на ' + w + ' px горе вдясно: радар на мястото на сателита, "Отмени" със стрелка между основите и „Точки“, „Точки“ без дума: ' + JSON.stringify({ radar: A.radar, undo: A.undoPos, h: A.undoH, word: A.vtxWord }));
+    if (w === 1440) check(A.name === 372, 'на 1440 px полето за име на маршрута е ' + A.name + ' px (беше 280)');
+    await page.click('#barHandle');
+    await page.waitForFunction(() => document.querySelector('#bar').getBoundingClientRect().bottom <= 0 && document.querySelector('.maptl').getBoundingClientRect().top < 30, null, { timeout: 3000 }).catch(() => {});
+    await settle();
+    const B = await page.evaluate(tl114);
+    check(B.dir === 'down' && /19\.4l3\.2-3\.2/.test(B.arr) && B.fShown && B.fAfter && B.kids === A.kids && (narrow ? B.col : B.row) && !B.overTr && B.inScreen,
+      'на ' + w + ' px при скрита лента стрелкичката се обръща надолу, "Следене" излиза след "Лента" ' + (narrow ? '(отдолу)' : '(вдясно)') + ', нищо не застъпва реда вдясно');
+    await page.click('#barHandle');
+    await page.waitForFunction(() => document.querySelector('#bar').getBoundingClientRect().top >= 0, null, { timeout: 3000 }).catch(() => {});
+    check(await page.evaluate(() => !document.body.classList.contains('bar-hidden') && document.querySelector('#barHandle').dataset.dir === 'up'), 'на ' + w + ' px кръглата "Лента" връща лентата');
+    await page.click('#toPanelBtn');
+    const pt = await page.waitForFunction(() => Math.abs(document.querySelector('#panel').getBoundingClientRect().top) < 2 && window.scrollY > 100, null, { timeout: 4000 }).then(() => 0, () => page.evaluate(() => document.querySelector('#panel').getBoundingClientRect().top));
+    check(pt === 0, 'на ' + w + ' px "↓" стига до текстовата част под картата (' + Math.round(pt) + ')');
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
   }
   // Редът за сваляне на изминатото (долу върху картата) не се застъпва със стрелката.
   for (const w of [360, 1440]) {
@@ -980,9 +1021,9 @@ function barFits() {
   // Версия: в дъното и в името на кеша от sw.js.
   const verText = (await p5.textContent('#appVersion')).trim();
   const ver = (verText.match(/^\d+\.\d+\.\d+/) || [''])[0];
-  check(ver === '1.1.3' && await p5.isVisible('#appVersion') && /^Версия 1\.1\.3 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
+  check(ver === '1.1.4' && await p5.isVisible('#appVersion') && /^Версия 1\.1\.4 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
   const swCache = (() => { const ctx = { importScripts: f => vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx), addEventListener: () => {} }; ctx.self = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8') + ';this.__c = CACHE;', ctx); return ctx.__c; })();
-  check(swCache === 'gpxk-v22-1.1.3' && swCache === 'gpxk-v22-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
+  check(swCache === 'gpxk-v23-1.1.4' && swCache === 'gpxk-v23-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
   const liveCaches = await p5.evaluate(() => navigator.serviceWorker.ready.then(() => new Promise(r => { const t0 = Date.now(); (function poll() { caches.keys().then(k => (k.length || Date.now() - t0 > 8000) ? r(k) : setTimeout(poll, 100)); })(); })));
   check(liveCaches.length === 1 && liveCaches[0] === swCache, 'в браузъра работникът е създал кеш ' + JSON.stringify(liveCaches));
   // Бутоните са неактивни, когато няма какво да изчистят.
@@ -1042,7 +1083,12 @@ function barFits() {
   const r0 = await rs5();
   b5 = await btns5();
   check(!b5.nov && !b5.izt && r0.n === 2 && r0.nTracks === 3, 'с тракове и части двата бутона са активни');
+  const undoSt = () => p5.evaluate(() => { const u = document.querySelector('#undoBtn'); return { dis: u.disabled, op: +getComputedStyle(u).opacity, n: __gpxk.ui.undo.length }; });
+  const us0 = await undoSt();
+  check(us0.dis && us0.op < 0.6 && us0.n === 0, '"Отмени" горе вдясно е избледняло при празна история: ' + JSON.stringify(us0));
   await p5.click('#clearPartsBtn');
+  const us1 = await undoSt();
+  check(!us1.dis && us1.op === 1 && us1.n === 1, 'след действие "Отмени" е активно и плътно: ' + JSON.stringify(us1));
   let r1 = await rs5(); b5 = await btns5();
   check(r1.n === 0 && r1.tracks === r0.tracks && r1.parts === '(0)' && b5.izt && !b5.nov && r1.routes === r0.routes, '"Изтрий": частите са махнати, траковете остават, "Изтрий" е неактивен');
   await p5.click('#undoBtn');
@@ -1101,7 +1147,7 @@ function barFits() {
   await p6.screenshot({ path: path.join(OUT, 'follow-rot-390.png') });
   const rot6 = await p6.evaluate(() => __gpxk.map.getBearing());
   // Скрита лента: "Стоп" е върху картата горе вляво; истински клик спира следенето.
-  await p6.click('#hideBarBtn');
+  await p6.click('#barHandle');
   await p6.waitForFunction(() => document.querySelector('#bar').getBoundingClientRect().bottom <= 0, null, { timeout: 3000 }).catch(() => {});
   const fab6 = await p6.evaluate(fabState);
   check(fab6.shown && fab6.text === 'Стоп' && fab6.danger && fab6.pressed === 'true' && !fab6.overTr && !fab6.overHandle && fab6.left >= 0, '390x844, скрита лента: "Стоп" върху картата, до "Лента" - ' + JSON.stringify(fab6));

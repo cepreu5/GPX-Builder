@@ -1060,10 +1060,15 @@
     else if (h.kind === 'cut') toast('Тази част е изрязана. Върни я от списъка "Изрязано от тракове" под картата.');
   }
   function toggleBar() { setBar(!document.body.classList.contains('bar-hidden')); }
-  // Скрива/връща горната лента; бутонът "Лента" горе вляво се вижда само докато лентата е скрита.
+  // Скрива/връща горната лента. Кръглата "Лента" горе вляво стои винаги: стрелкичката сочи нагоре при отворена
+  // лента (натискаш - скрива я) и надолу при скрита (натискаш - връща я).
   function setBar(hide) {
     document.body.classList.toggle('bar-hidden', hide);
-    $('#barHandle').hidden = !hide;
+    var h = $('#barHandle'), t = hide ? 'Покажи горната лента' : 'Скрий горната лента';
+    h.dataset.dir = hide ? 'down' : 'up';
+    h.setAttribute('aria-expanded', String(!hide));
+    h.setAttribute('aria-label', t); h.title = t;
+    h.querySelector('.bt-arr').setAttribute('d', hide ? 'M12 13v6.4M8.8 16.2 12 19.4l3.2-3.2' : 'M12 19.4V13M8.8 16.2 12 13l3.2 3.2');
     if (hide && !U.LS.get('barHint', false)) {
       U.LS.set('barHint', true);
       toast('Лентата се скри - цъкни бутона „Лента“ горе вляво или празно място на картата, за да я върнеш.', false, 6000);
@@ -2431,8 +2436,7 @@
       case 'pic-1': picFit(true); break;
       case 'new-route': newRoute('Нов маршрут'); openRoute(S.routes[0].id); setMode('select'); window.scrollTo({ top: 0, behavior: 'smooth' }); toast('Нов маршрут: клик върху трак на картата го слага като първа част'); break;
       case 'new-empty': newRoute('Празен маршрут'); openRoute(S.routes[0].id); setMode('add'); window.scrollTo({ top: 0, behavior: 'smooth' }); break;
-      case 'show-bar': setBar(false); break;
-      case 'hide-bar': setBar(true); break;
+      case 'toggle-bar': toggleBar(); break;
       case 'theme': setTheme(document.documentElement.getAttribute('data-app-mode') === 'dark' ? 'light' : 'dark'); break;
     }
   }

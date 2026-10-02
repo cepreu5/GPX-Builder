@@ -149,7 +149,7 @@ body.bar-hidden .bar { transform: translateY(-110%); }
 .bar-row + .bar-row { margin-top: 5px; }
 .logo { font-weight: 650; font-size: 14px; white-space: nowrap; display: inline-flex; align-items: center; }
 .logo i { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--app-accent); border-radius: 50%; margin-right: 7px; }
-.route-name { flex: 0 1 280px; min-width: 90px; font-weight: 600; border-color: transparent !important; background: transparent !important; }
+.route-name { flex: 0 1 372px; min-width: 90px; font-weight: 600; border-color: transparent !important; background: transparent !important; }
 .route-name:hover, .route-name:focus { border-color: var(--app-line-strong) !important; background: var(--app-surface) !important; }
 .search { position: relative; flex: 0 1 260px; min-width: 120px; }
 .search input { width: 100%; }
@@ -191,14 +191,20 @@ body.bar-hidden .mapctl.tr { top: calc(12px + env(safe-area-inset-top)); }
 /* При следене лентата е с ред повече: контролите горе вдясно слизат под нея (--bar-h идва от app.js) */
 body.following:not(.bar-hidden) .mapctl.tr { top: calc(var(--bar-h, 86px) + 10px); }
 body.following:not(.bar-hidden) .pic-scroll { padding-top: calc(var(--bar-h, 86px) + 2px); }
-/* Горе вляво, на реда на "Сателит / Топо": "Следене / Стоп" и бутон "Лента", който връща скритата лента.
-   И двете се виждат само докато лентата е скрита. */
+/* Горе вляво, на реда на "Сателит / Топо": "↓" към числата, кръглата "Лента" (скрива и връща лентата)
+   и "Следене / Стоп" - то само докато лентата е скрита. Слиза под лентата, както контролите вдясно. */
 .maptl {
-  position: absolute; z-index: 25; left: 10px; top: calc(12px + env(safe-area-inset-top));
-  display: flex; align-items: center; gap: 6px;
+  position: absolute; z-index: 25; left: 10px; top: 96px;
+  display: flex; align-items: center; gap: 6px; transition: top .18s ease;
 }
+body.bar-hidden .maptl { top: calc(12px + env(safe-area-inset-top)); }
+body.following:not(.bar-hidden) .maptl { top: calc(var(--bar-h, 86px) + 10px); }
 .maptl .follow-fab { display: none; }
 body.bar-hidden .maptl .follow-fab { display: inline-flex; }
+/* Кръглите "↓" и "Лента": като стрелката нагоре долу вдясно */
+.btn.round-fab { width: 36px; height: 36px; min-width: 0; min-height: 0; padding: 0; border-radius: 50%; background: var(--app-overlay); box-shadow: var(--app-shadow); }
+.round-fab .ico-svg { width: 20px; height: 20px; }
+.bar-toggle .ico-svg { width: 21px; height: 21px; }
 .follow-btn.danger { color: var(--app-danger); border-color: var(--app-danger); font-weight: 600; }
 .barhandle {
   display: inline-flex; align-items: center; justify-content: center; gap: 5px;
@@ -225,6 +231,11 @@ body.bar-hidden .maptl .follow-fab { display: inline-flex; }
 .ico-svg { display: block; width: 22px; height: 22px; flex-shrink: 0; }
 .totop-btn .ico-svg { width: 20px; height: 20px; }
 .seg.base button { display: inline-flex; align-items: center; justify-content: center; padding: 3px 9px; }
+/* "Отмени" горе вдясно: квадратно копче, колкото "Сателит / Топо"; избледнява при празна история (.btn:disabled) */
+.mapctl .btn.map-undo { width: 38px; min-width: 0; min-height: 30px; height: 30px; padding: 0; }
+.map-undo .ico-svg { width: 19px; height: 19px; }
+/* "Точки": чавката и пръстен с номер, както е маркерът на картата */
+.vtx-ico { width: 18px; height: 18px; }
 /* Стрелката "С" и копчето "Север": под реда горе вдясно, при завъртяна карта */
 .compass {
   position: absolute; right: 0; top: calc(100% + 8px);
@@ -486,7 +497,7 @@ td .num, td.num { font-family: var(--app-mono); }
 @media (max-width: 760px) {
   .bar-row:first-child { flex-wrap: wrap; row-gap: 5px; }
   .route-name { flex: 1 1 60px; min-width: 60px; }
-  .mapctl.tr { top: 132px; }
+  .mapctl.tr, .maptl { top: 132px; }
   .pic-scroll { padding-top: 128px; }
 }
 @media (max-width: 560px) {
@@ -507,7 +518,6 @@ td .num, td.num { font-family: var(--app-mono); }
   #followTitle { flex: 1 0 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mapctl.tr { gap: 4px; }
   .maptl { flex-direction: column; align-items: flex-start; }
-  .maptl #barHandle { order: -1; }
   .mapctl.tr .seg button { padding: 3px 7px; }
   .mapctl.tr .chk { padding: 4px 6px; gap: 4px; }
 }

@@ -39,7 +39,6 @@
   <div class="bar-row">
     <span class="logo"><i></i><span class="logo-t">CX Tracks</span></span>
     <input id="routeName" class="route-name" type="text" value="Нов маршрут" aria-label="Име на маршрута" spellcheck="false">
-    <button class="btn" data-act="undo" id="undoBtn" disabled>Отмени</button>
     <label class="tol"><span class="tol-label">Отклонение</span> <input type="text" class="tolInput num" inputmode="numeric" pattern="[0-9]*" maxlength="3" value="20" autocomplete="off" aria-label="Максимално допустимо отклонение в метри" title="Отклонение в метри, от 0 до 999. Enter прилага."> <span class="tol-unit">м</span></label>
     <span class="sp"></span>
     <button class="btn pri" data-act="add-tracks" title="Добави .gpx тракове">Добави<span class="wide"> тракове</span></button>
@@ -48,8 +47,6 @@
     <button class="btn follow-btn" data-act="follow" id="followBtn" aria-pressed="false" aria-label="Следене - пусни следенето по GPS">Следене</button>
     <button class="btn" data-act="save" title="Свали .gpx и запиши маршрута в „Записани маршрути“">Запази</button>
     <label class="chk bar-chk" id="labelsChk" title="Имената и номерата на пътищата върху сателитните снимки"><input type="checkbox" id="labelsToggle" checked> Имена</label>
-    <button class="btn ico" data-act="to-panel" title="Към числата под картата" aria-label="Към числата под картата">&#8595;</button>
-    <button class="btn ico" data-act="hide-bar" id="hideBarBtn" title="Скрий горната лента" aria-label="Скрий горната лента">&#9650;</button>
   </div>
   <div class="bar-row tools" id="tools">
     <div class="seg" role="group" aria-label="Режим">
@@ -86,16 +83,19 @@
 
 <section id="mapwrap" class="mapwrap" aria-label="Карта">
   <div id="map" class="map"></div>
+  <!-- Горе вляво: "↓" към числата, кръглата "Лента" (скрива и връща лентата, стрелкичката сочи накъде) и "Следене" (само при скрита лента) -->
   <div class="maptl">
+    <button id="toPanelBtn" class="btn ico round-fab" type="button" data-act="to-panel" title="Към числата под картата" aria-label="Към числата под картата"><svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v13.5M5.5 12.5 12 19l6.5-6.5"/></svg></button>
+    <button id="barHandle" class="btn ico round-fab bar-toggle" type="button" data-act="toggle-bar" data-dir="up" aria-expanded="true" aria-label="Скрий горната лента" title="Скрий горната лента"><svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3.4" width="6" height="6" rx="1.2"/><rect x="9" y="3.4" width="6" height="6" rx="1.2"/><rect x="15" y="3.4" width="6" height="6" rx="1.2"/><path class="bt-arr" d="M12 19.4V13M8.8 16.2 12 13l3.2 3.2"/></svg></button>
     <button id="followMapBtn" class="barhandle follow-btn follow-fab" type="button" data-act="follow" aria-pressed="false" aria-label="Следене - пусни следенето по GPS">Следене</button>
-    <button id="barHandle" class="barhandle" type="button" data-act="show-bar" aria-label="Покажи горната лента" title="Покажи горната лента" hidden><span aria-hidden="true">&#9660;</span> Лента</button>
   </div>
   <div class="mapctl tr">
     <div class="seg base" role="group" aria-label="Основа на картата">
-      <button data-base="sat" class="on" title="Сателит" aria-label="Сателит"><svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="1.6" y="9" width="6.6" height="6" rx="1"/><path d="M4.9 9v6"/><rect x="15.8" y="9" width="6.6" height="6" rx="1"/><path d="M19.1 9v6"/><rect x="8.6" y="8.6" width="6.8" height="6.8" rx="1.3"/><path d="M12 8.6V6.2M10.2 4.4h3.6M12 6.2 10.2 4.4M12 6.2l1.8-1.8"/></svg></button>
+      <button data-base="sat" class="on" title="Сателит" aria-label="Сателит"><svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5.3" opacity=".45"/><path d="M12 12 18.4 7.5"/><circle cx="16.4" cy="9.2" r="1.4" fill="currentColor" stroke="none"/></svg></button>
       <button data-base="topo" title="Топо" aria-label="Топо"><svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M12 2.6c4.9 0 7.6 3.1 7.6 6.9S16.9 17 12 17s-7.6-3.7-7.6-7.5S7.1 2.6 12 2.6z"/><path d="M12 6.4c2.5 0 3.9 1.6 3.9 3.4S14.5 13.5 12 13.5s-3.9-1.9-3.9-3.7S9.5 6.4 12 6.4z"/><circle cx="12" cy="9.9" r="1.1" fill="currentColor" stroke="none"/><path d="M7.5 20.4h9"/></svg></button>
     </div>
-    <label class="chk" id="vtxChk" title="Кръгчетата и номерата на чертаните точки"><input type="checkbox" id="vtxToggle" checked> Точки</label>
+    <button class="btn ico map-undo" type="button" data-act="undo" id="undoBtn" title="Отмени" aria-label="Отмени" disabled><svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+    <label class="chk" id="vtxChk" title="Точки - кръгчетата и номерата на чертаните точки"><input type="checkbox" id="vtxToggle" checked aria-label="Точки"><svg class="ico-svg vtx-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="7.6" fill="none" stroke="currentColor" stroke-width="2.6"/><text x="12" y="16.1" text-anchor="middle" font-size="10.5" font-weight="700" font-family="ui-monospace, Menlo, monospace" fill="currentColor">1</text></svg></label>
     <button id="northBtn" class="compass" type="button" data-act="north" title="Върни север нагоре" aria-label="Север - върни север нагоре" hidden><span class="rose" aria-hidden="true"><i class="needle"></i><b class="n">С</b></span><span id="northLbl">Север</span></button>
   </div>
   <div class="mapctl br">
