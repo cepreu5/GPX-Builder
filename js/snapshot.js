@@ -7,9 +7,14 @@
   var FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif';
   var MONO = 'ui-monospace, Menlo, Consolas, monospace';
 
-  // Размер и приближаване, при които обхватът се събира в около 2400 точки.
-  function plan(bounds, margin, maxZoom, target) {
+  /* Размер и приближаване, при които обхватът се събира в около 2400 точки.
+     box: {legend: брой редове в легендата} - картината е с панел с числата горе вляво (изборът
+     "около маршрута"): маршрутът се събира в свободното място ПОД панела и над скалата и се центрира
+     там. Картината се удължава надолу с височината на панела; ако излезе твърде голяма, приближаването
+     пада (маршрутът се смалява), колкото е нужно. Без box - кадърът е точно обхватът. */
+  function plan(bounds, margin, maxZoom, target, box) {
     target = target || 2400;
+    if (box) return planBox(bounds, margin, maxZoom, target, box);
     var x0 = M.lon2x(bounds.w), x1 = M.lon2x(bounds.e), y0 = M.lat2y(bounds.n), y1 = M.lat2y(bounds.s);
     var dx = Math.max(x1 - x0, 1e-7), dy = Math.max(y1 - y0, 1e-7);
     x0 -= dx * margin; x1 += dx * margin; y0 -= dy * margin; y1 += dy * margin;
@@ -26,6 +31,46 @@
     if (h < minH) { oy -= (minH - h) / 2; h = minH; }
     w = Math.max(w, 600); h = Math.max(h, 450);
     return { z: z, x0: Math.round(ox), y0: Math.round(oy), w: w, h: h };
+  }
+
+  // Мащабът на надписите и панела: от по-голямата страна на картината.
+  function scaleOf(w, h) { return Math.max(1, Math.max(w, h) / 1600); }
+  function legendRows(n) { return Math.min(n, 7) + (n > 7 ? 1 : 0) + 1; }
+  // Панелът с числата и легендата: горе вляво; ширината се мери при чертане, тук - височината.
+  function panelRect(p, n) {
+    var s = scaleOf(p.w, p.h);
+    return { x: 14 * s, y: 14 * s, h: 14 * s + 3 * 19 * s + 8 * s + legendRows(n) * 17 * s + 6 * s, s: s };
+  }
+  // Свободното място за маршрута: под панела (с отстъп) и над скалата долу вляво.
+  function freeArea(p, n) {
+    var b = panelRect(p, n), s = b.s;
+    return { x: 0, y: b.y + b.h + 10 * s, w: p.w, h: p.h - (b.y + b.h + 10 * s) - 52 * s };
+  }
+  function planBox(bounds, margin, maxZoom, target, box) {
+    var n = box.legend || 0;
+    var X0 = M.lon2x(bounds.w), X1 = M.lon2x(bounds.e), Y0 = M.lat2y(bounds.n), Y1 = M.lat2y(bounds.s);
+    var dx = Math.max(X1 - X0, 1e-7), dy = Math.max(Y1 - Y0, 1e-7);
+    X0 -= dx * margin; X1 += dx * margin; Y0 -= dy * margin; Y1 += dy * margin;
+    dx = X1 - X0; dy = Y1 - Y0;
+    var z = Math.floor(Math.log(target / (Math.max(dx, dy) * 256)) / Math.LN2);
+    z = Math.max(3, Math.min(maxZoom, z));
+    for (;;) {
+      var S = 256 * Math.pow(2, z), rw = dx * S, rh = dy * S;
+      // Височината на панела зависи от мащаба, а той - от размера: няколко кръга стигат.
+      var w = Math.max(rw, 600), h = rh, k, top = 0, bot = 0;
+      for (k = 0; k < 4; k++) {
+        var s = scaleOf(w, h);
+        top = 14 * s + (14 * s + 3 * 19 * s + 8 * s + legendRows(n) * 17 * s + 6 * s) + 10 * s; bot = 52 * s;
+        h = Math.max(rh + top + bot, 450);
+        w = Math.max(rw, 600, Math.round(h * 0.75));
+      }
+      if (z <= 3 || Math.max(w, h) <= 4096) {
+        w = Math.round(w); h = Math.round(h);
+        var fh = h - top - bot;
+        return { z: z, x0: Math.round(X0 * S - (w - rw) / 2), y0: Math.round(Y0 * S - top - (fh - rh) / 2), w: w, h: h, box: true };
+      }
+      z--;
+    }
   }
 
   function loadImg(url, ms) {
@@ -85,7 +130,7 @@
   /* opts: {bounds, margin, base:{layers:[...], name, attribution}, labels:[layers], info, route:{name, parts:[{pts,label}], len, up, maxGrade, wpts}, colors} */
   function make(opts, onProgress) {
     var maxZ = Math.min.apply(null, opts.base.layers.map(function (l) { return l.maxZoom || 19; })) + 1;
-    var p = plan(opts.bounds, opts.margin == null ? 0.1 : opts.margin, Math.min(18, maxZ));
+    var p = plan(opts.bounds, opts.margin == null ? 0.1 : opts.margin, Math.min(18, maxZ), null, opts.box);
     var cv = document.createElement('canvas');
     cv.width = p.w; cv.height = p.h;
     var ctx = cv.getContext('2d');
@@ -132,7 +177,7 @@
   }
 
   function drawRoute(ctx, p, opts) {
-    var s = Math.max(1, Math.max(p.w, p.h) / 1600);
+    var s = scaleOf(p.w, p.h);
     var W = 256 * Math.pow(2, p.z);
     function pr(lat, lon) { return [M.lon2x(lon) * W - p.x0, M.lat2y(lat) * W - p.y0]; }
     var col = opts.colors;
@@ -160,6 +205,16 @@
       if (pts.length < 2) return;
       ctx.beginPath();
       pts.forEach(function (pt, k) { var q = pr(pt[0], pt[1]); if (k) ctx.lineTo(q[0], q[1]); else ctx.moveTo(q[0], q[1]); });
+      ctx.strokeStyle = col.casing; ctx.lineWidth = 7 * s; ctx.stroke();
+      ctx.strokeStyle = col.gap || '#e09a00'; ctx.lineWidth = 5 * s; ctx.setLineDash([10 * s, 7 * s]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+
+    // "Свързано направо" между две части: същото кехлибарено на пунктир, без надпис.
+    (route.bridges || []).forEach(function (pts) {
+      var a = pr(pts[0][0], pts[0][1]), b = pr(pts[1][0], pts[1][1]);
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
       ctx.strokeStyle = col.casing; ctx.lineWidth = 7 * s; ctx.stroke();
       ctx.strokeStyle = col.gap || '#e09a00'; ctx.lineWidth = 5 * s; ctx.setLineDash([10 * s, 7 * s]);
       ctx.stroke();
@@ -250,8 +305,7 @@
     shown.forEach(function (x) { bw = Math.max(bw, ctx.measureText(x.label).width + 30 * s); });
     bw = Math.min(bw + 24 * s, p.w * 0.6);
     var lh = 19 * s;
-    var bh = 14 * s + lines.length * lh + 8 * s + (shown.length + (legend.length > shown.length ? 1 : 0) + 1) * 17 * s + 6 * s;
-    var bx = 14 * s, by = 14 * s;
+    var pb = panelRect(p, legend.length), bh = pb.h, bx = pb.x, by = pb.y;
     ctx.fillStyle = 'rgba(255,253,248,0.93)';
     roundRect(ctx, bx, by, bw, bh, 6 * s); ctx.fill();
     ctx.strokeStyle = 'rgba(31,29,26,0.25)'; ctx.lineWidth = 1 * s; ctx.stroke();
@@ -292,5 +346,5 @@
     return [M.lon2x(lon) * W - meta.x0, M.lat2y(lat) * W - meta.y0];
   }
 
-  window.Snapshot = { make: make, plan: plan, toPic: toPic };
+  window.Snapshot = { make: make, plan: plan, toPic: toPic, panelRect: panelRect, freeArea: freeArea };
 })();

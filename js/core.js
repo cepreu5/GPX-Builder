@@ -635,6 +635,8 @@
         if (t) {
           pts = slice(t, it.a, it.b);
           if (it.rev) pts.reverse();
+          // Изгладен маршрут ("Запази" с отметка): частите от тракове се изглаждат, краищата остават.
+          if (route.smooth && pts.length > 2) pts = smoothWalk(pts, { side: route.smooth.side, dense: route.smooth.dense, route: true });
         }
       } else if (it.type === 'draw') {
         pts = (it.pts || []).map(function (p) { return [p.lat, p.lon, null]; });
@@ -852,7 +854,9 @@
      Краищата и дупките (walkGaps - измерените краища и вмъкнатото между тях) остават непокътнати.
      Между две оставени измерени точки не остава повече от WALK_GAP по следата - иначе walkGaps
      би видял дупка там, където няма; при нужда махнатите измерени точки се връщат.
-     Точките остават същите масиви (височина, час, точност). */
+     Точките остават същите масиви (височина, час, точност).
+     opts.route - части на маршрут ("Запази"): без поле за точност няма дупки за пазене, затова и
+     границата WALK_GAP не важи - иначе при точки през 20+ м изглаждането не би махнало нищо. */
   var SMOOTH_M = 5;
   function smoothWalk(pts, opts) {
     opts = opts || {};
@@ -896,7 +900,7 @@
       }
     }
     // Без нови дупки: по оставените точки, от измерена до измерена - до WALK_GAP - 1 м.
-    var lim = WALK_GAP - 1;
+    var lim = WALK_GAP - 1, cap = !opts.route || pts.some(function (p) { return p.length >= 5; });
     var fix = function (lo, hi, all) {
       // Връщаме махнати измерени точки: най-далечната, до която следата още е под границата.
       var p0 = lo, acc = 0, cand = -1, any = false, k = lo + 1;
@@ -912,7 +916,7 @@
       }
       return any;
     };
-    for (var pass = 0; pass < 8; pass++) {
+    for (var pass = 0; cap && pass < 8; pass++) {
       var bad = [], lastM = -1, runM = 0, prev = -1;
       for (i = 0; i < n; i++) {
         if (!keep[i]) continue;

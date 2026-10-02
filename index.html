@@ -44,7 +44,6 @@
     <button class="btn pri" data-act="add-tracks" title="Добави .gpx тракове">Добави<span class="wide"> тракове</span></button>
     <button class="btn wide-only" data-act="picture">Картина</button>
     <button class="btn wide-only" data-act="export-gpx">Изнеси .gpx</button>
-    <button class="btn follow-btn" data-act="follow" id="followBtn" aria-pressed="false" aria-label="Следене - пусни следенето по GPS">Следене</button>
     <button class="btn" data-act="save" title="Свали .gpx и запиши маршрута в „Записани маршрути“">Запази</button>
     <label class="chk bar-chk" id="labelsChk" title="Имената и номерата на пътищата върху сателитните снимки"><input type="checkbox" id="labelsToggle" checked> Имена</label>
   </div>
@@ -83,11 +82,11 @@
 
 <section id="mapwrap" class="mapwrap" aria-label="Карта">
   <div id="map" class="map"></div>
-  <!-- Горе вляво: "↓" към числата, кръглата "Лента" (скрива и връща лентата, стрелкичката сочи накъде) и "Следене" (само при скрита лента) -->
+  <!-- Горе вляво: "↓" към числата, кръглата "Лента" (скрива и връща лентата, стрелкичката сочи накъде) и текстовото "Следене / Стоп" - винаги тук, лентата го няма -->
   <div class="maptl">
     <button id="toPanelBtn" class="btn ico round-fab" type="button" data-act="to-panel" title="Към числата под картата" aria-label="Към числата под картата"><svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v13.5M5.5 12.5 12 19l6.5-6.5"/></svg></button>
     <button id="barHandle" class="btn ico round-fab bar-toggle" type="button" data-act="toggle-bar" data-dir="up" aria-expanded="true" aria-label="Скрий горната лента" title="Скрий горната лента"><svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3.4" width="6" height="6" rx="1.2"/><rect x="9" y="3.4" width="6" height="6" rx="1.2"/><rect x="15" y="3.4" width="6" height="6" rx="1.2"/><path class="bt-arr" d="M12 19.4V13M8.8 16.2 12 13l3.2 3.2"/></svg></button>
-    <button id="followMapBtn" class="barhandle follow-btn follow-fab" type="button" data-act="follow" aria-pressed="false" aria-label="Следене - пусни следенето по GPS">Следене</button>
+    <button id="followMapBtn" class="btn follow-btn follow-fab" type="button" data-act="follow" aria-pressed="false" aria-label="Следене - пусни следенето по GPS">Следене</button>
   </div>
   <div class="mapctl tr">
     <div class="seg base" role="group" aria-label="Основа на картата">
@@ -134,10 +133,11 @@
   </div>
   <div id="picView" class="picview" hidden>
     <div id="picScroll" class="pic-scroll"><div id="picInner" class="pic-inner"><img id="picImg" alt="Запазена картина на маршрута"><svg id="picSvg"></svg></div></div>
+    <!-- Колона като "+ / − / Центрирай / ▣" на картата: "Към картата", "1:1" и "▣" (цялата картина) - не стига до стрелката нагоре -->
     <div class="pic-ctl">
-      <button class="btn sm" data-act="pic-fit">Цялата</button>
-      <button class="btn sm" data-act="pic-1">1:1</button>
-      <button class="btn sm" data-act="pic-close">Към картата</button>
+      <button class="btn ico" data-act="pic-close" id="picCloseBtn" title="Към картата" aria-label="Към картата"><svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 4.5 3.5 6.8v12.7L9 17.2l6 2.3 5.5-2.3V4.5L15 6.8z"/><path d="M9 4.5v12.7M15 6.8v12.7"/></svg></button>
+      <button class="btn ico pic-one" data-act="pic-1" title="1:1 - точка за точка" aria-label="1:1 - точка за точка">1:1</button>
+      <button class="btn ico" data-act="pic-fit" id="picFitBtn" title="Цялата картина" aria-label="Цялата картина">&#9635;</button>
     </div>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
@@ -332,7 +332,20 @@
 
 <dialog id="dlgName" class="dlg dlg-sm">
   <form method="dialog" id="nameForm">
-    <h3>Име на файла</h3>
+    <h3 id="nameTitle">Име на файла</h3>
+    <!-- Само при "Запази": изглаждането на записа и на сваления .gpx - над полето за име -->
+    <div id="saveSmooth" class="save-smooth" hidden>
+      <label class="smooth-opt"><input type="checkbox" id="rsSide">
+        <span><b>Изглаждане</b><br><span class="muted small">маха точките до 5 м встрани от линията</span></span></label>
+      <label class="smooth-opt"><input type="checkbox" id="rsDense">
+        <span><b>Гъсти точки</b><br><span class="muted small">маха съседни точки на под 5 м по линията</span></span></label>
+      <dl class="smooth-sum">
+        <dt>Точки</dt><dd class="num" id="rsPts">-</dd>
+        <dt>Дължина</dt><dd class="num" id="rsLen">-</dd>
+      </dl>
+      <p class="muted small" id="rsNote">Изглажда се маршрутът: чертежът на картата, записът и сваленият .gpx остават еднакви. „Отмени“ връща неизгладения. Чертаните точки и височините не се пипат.</p>
+      <span class="small muted name-lbl">Име на файла и на записа</span>
+    </div>
     <div class="row name-row">
       <input name="fname" id="fileName" type="text" autocomplete="off" spellcheck="false" aria-label="Име на файла">
       <span class="muted small">.gpx</span>

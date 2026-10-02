@@ -461,5 +461,18 @@ console.log('общ участък OK');
   var os = Core.smoothWalk(onr, { side: true });
   assert.ok(os.length < onr.length / 4, 'по маршрут: ' + os.length + ' от ' + onr.length);
   assert.deepStrictEqual(Core.walkGaps(os), [], 'по маршрут: без лъжливи дупки');
+  // Изгладен маршрут (route.smooth от "Запази"): частите от тракове се изглаждат в самата геометрия - краищата и чертаните точки остават.
+  var tz = { id: 'Z', pts: plain.map(function (p) { return [p[0], p[1], 500]; }) }; Core.prep(tz);
+  var rz = { items: [{ type: 'part', trackId: 'Z', a: 0, b: tz.len }, { type: 'draw', pts: [{ lat: 42.5, lon: 24.75 }, { lat: 42.5005, lon: 24.7502 }] }] };
+  var gz0 = Core.routeGeometry(rz, { Z: tz }, null), gz1 = Core.routeGeometry(Object.assign({}, rz, { smooth: { side: true } }), { Z: tz }, null);
+  assert.ok(gz1.pts.length < gz0.pts.length / 3, 'изгладен маршрут: ' + gz1.pts.length + ' от ' + gz0.pts.length + ' точки');
+  assert.deepStrictEqual(gz1.pts[0], gz0.pts[0]); assert.deepStrictEqual(gz1.pts[gz1.pts.length - 1], gz0.pts[gz0.pts.length - 1]);
+  assert.strictEqual(gz1.items[1].pts.length, 2, 'чертаните точки не се пипат');
+  assert.ok(gz1.len <= gz0.len && gz1.len > gz0.len * 0.9, 'дължина ' + gz0.len.toFixed(0) + ' → ' + gz1.len.toFixed(0));
+  assert.strictEqual(Core.routeGeometry(rz, { Z: tz }, null).pts.length, gz0.pts.length, 'без smooth - както е');
+  // Права през 20 м: при маршрут границата от 40 м не важи - изглаждането маха междинните.
+  var tl = { id: 'L', pts: [] }; for (i = 0; i <= 200; i++) tl.pts.push([42.5, 24.7 + i * 0.00025, 500]); Core.prep(tl);
+  var gl = Core.routeGeometry({ items: [{ type: 'part', trackId: 'L', a: 0, b: tl.len }], smooth: { side: true } }, { L: tl }, null);
+  assert.ok(gl.pts.length < 10, 'права през 20 м: ' + gl.pts.length + ' от 201');
   console.log('smoothWalk: OK (' + pts.length + ' → изглаждане ' + side.length + ', гъсти ' + dense.length + ', двете ' + both.length + ')');
 })();
