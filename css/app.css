@@ -236,6 +236,7 @@ body.bar-hidden .maptl .follow-fab { display: inline-flex; }
 .map-undo .ico-svg { width: 19px; height: 19px; }
 /* "Точки": чавката и пръстен с номер, както е маркерът на картата */
 .vtx-ico { width: 18px; height: 18px; }
+#vtxChk[hidden] { display: none; }
 /* Стрелката "С" и копчето "Север": под реда горе вдясно, при завъртяна карта */
 .compass {
   position: absolute; right: 0; top: calc(100% + 8px);

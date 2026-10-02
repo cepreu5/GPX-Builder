@@ -707,6 +707,36 @@ function barFits() {
     check(pt === 0, 'на ' + w + ' px "↓" стига до текстовата част под картата (' + Math.round(pt) + ')');
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
   }
+  // Промяна след плана 17: „Точки“ се вижда само докато на картата има чертани точки; отметката не се губи.
+  {
+    const cv = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const pv = await cv.newPage();
+    pv.on('pageerror', e => errors.push('pageerror(vtx): ' + e.message));
+    await pv.goto(url);
+    await pv.waitForFunction(() => window.__gpxk && window.__gpxk.ready);
+    const vst = () => pv.evaluate(() => { const l = document.querySelector('#vtxChk'), r = l.getBoundingClientRect(), r2 = __gpxk.S.routes.find(x => x.id === __gpxk.S.curId);
+      return { shown: !l.hidden && r.width > 0, n: r2.items.filter(i => i.type === 'draw').reduce((s, i) => s + i.pts.length, 0), on: document.querySelector('#vtxToggle').checked }; });
+    const addPt = (x, y) => pv.evaluate(q => { const m = __gpxk.map; m.opts.onClick(Object.assign({ x: q[0], y: q[1] }, m.unproject(q[0], q[1]))); }, [x, y]);
+    const v0 = await vst();
+    check(v0.n === 0 && !v0.shown, 'празен маршрут: копчето „Точки“ е скрито ' + JSON.stringify(v0));
+    await pv.click('[data-mode="add"]');
+    await addPt(640, 450);
+    const v1 = await vst();
+    check(v1.n === 1 && v1.shown && v1.on, 'след първата точка „Точки“ се вижда ' + JSON.stringify(v1));
+    await pv.click('#vtxToggle');
+    await addPt(700, 480);
+    await pv.click('#undoBtn'); await pv.click('#undoBtn');
+    const v2 = await vst();
+    check(v2.n === 0 && !v2.shown, '"Отмени" маха последната точка: „Точки“ пак е скрито ' + JSON.stringify(v2));
+    await addPt(660, 470);
+    const v3 = await vst();
+    check(v3.n === 1 && v3.shown && !v3.on && await pv.evaluate(() => localStorage.getItem('gpxk.vtxShow') === 'false'), 'нова точка: „Точки“ се вижда пак, махнатата отметка е запазена ' + JSON.stringify(v3));
+    await addPt(720, 500);
+    await pv.click('#clearPartsBtn');
+    const v4 = await vst();
+    check(v4.n === 0 && !v4.shown && !v4.on, '"Изтрий" маха всички точки: „Точки“ е скрито, отметката остава махната ' + JSON.stringify(v4));
+    await cv.close();
+  }
   // Редът за сваляне на изминатото (долу върху картата) не се застъпва със стрелката.
   for (const w of [360, 1440]) {
     await page.setViewportSize({ width: w, height: 800 });

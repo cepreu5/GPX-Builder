@@ -1283,6 +1283,8 @@
   }
   function renderPoints() {
     var vs = allVertices(), ws = walkPoints();
+    // "Точки" горе вдясно се вижда само докато има чертани точки; отметката си пази състоянието и скрита.
+    $('#vtxChk').hidden = !vs.length;
     $('#ptsCount').textContent = '(' + (vs.length + ws.length) + ')';
     $('#pointsList').innerHTML = vs.map(function (v, n) {
       var e = Elev.cache.get(Elev.cacheKey(v.p.lat, v.p.lon));
