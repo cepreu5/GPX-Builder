@@ -132,6 +132,13 @@
     <button class="btn sm" data-act="point-remove" data-i18n="act.remove">Махни</button>
     <button class="btn sm pri" data-act="point-close" data-i18n="act.done">Готово</button>
   </div>
+  <!-- Меню на разклонение (пръстен) или на участък: копчетата ги пише кодът, „Отказ“ го затваря -->
+  <div id="objMenu" class="objmenu" role="dialog" aria-labelledby="omTitle" hidden>
+    <b id="omTitle" class="om-t"></b>
+    <span id="omSub" class="om-sub muted small"></span>
+    <div id="omBtns" class="om-btns"></div>
+    <button type="button" class="btn sm om-cancel" data-om="cancel" data-i18n="act.cancel">Отказ</button>
+  </div>
   <div id="picView" class="picview" hidden>
     <div id="picScroll" class="pic-scroll"><div id="picInner" class="pic-inner"><img id="picImg" data-i18n-alt="pic.alt" alt="Запазена картина на маршрута"><svg id="picSvg"></svg></div></div>
     <!-- Колона като "+ / − / Центрирай / ▣" на картата: "Към картата", "1:1" и "▣" (цялата картина) - не стига до стрелката нагоре -->
@@ -145,6 +152,8 @@
 </section>
 
 <main id="panel" class="panel">
+  <!-- Ред под картата, докато има излишни пръстени: отваря списъка пак -->
+  <p id="ringsRow" class="rings-row" hidden><span id="ringsRowT"></span> · <button type="button" class="linkbtn" id="ringsOpen" data-i18n="rings.review">Прегледай</button></p>
   <section id="followPanel" class="card follow-panel" hidden>
     <button class="btn sm ico follow-x" data-act="walk-forget" id="walkForget" data-i18n-aria="walk.forget.aria" data-i18n-title="walk.forget.title" aria-label="Махни панела „Следене“" title="Махни панела и изминатото за сваляне" hidden>&times;</button>
     <div class="follow-stats">
@@ -394,6 +403,18 @@
       <span class="sp"></span>
       <button class="btn" type="button" id="walkDl" data-i18n="act.dlGpx">Свали .gpx</button>
       <button class="btn pri" type="submit" value="save" id="walkOk" data-i18n="act.save">Запази</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgRings" class="dlg dlg-sm">
+  <form method="dialog" id="ringsForm">
+    <h3><span data-i18n="rings.h">Излишни пръстени</span> <span class="num muted" id="ringsN">(0)</span></h3>
+    <p class="muted small" data-i18n="rings.note">Нищо не се маха, докато не потвърдиш. Отметка на ред = този пръстен да падне; двете парчета на трака се сливат.</p>
+    <ul id="ringsList" class="rings-list"></ul>
+    <div class="row end">
+      <button class="btn" type="button" id="ringsKeep" data-i18n="rings.keep">Задръж всички</button>
+      <button class="btn pri" type="button" id="ringsDrop" data-i18n="rings.drop">Махни отметнатите</button>
     </div>
   </form>
 </dialog>

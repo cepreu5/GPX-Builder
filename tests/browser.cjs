@@ -97,10 +97,26 @@ function barFits() {
   // newContext({ splash: true }) - чисто устройство, началният екран излиза.
   // От 1.2.0 езикът следва браузъра: проверките тръгват с браузър на български, освен ако не е дадено друго.
   const rawContext = browser.newContext.bind(browser);
+  // От 1.3.0 клик върху участък отваря меню, а след зареждане може да излезе „Излишни пръстени“. Досегашните
+  // проверки минават както преди: менюто на участък се отговаря с първото копче (днешния клик - добави /
+  // продължи по клона / махни от маршрута), а списъкът - със „Задръж всички“. newContext({ menus: true })
+  // оставя менютата, newContext({ rings: true }) - списъка.
   browser.newContext = async (o = {}) => {
-    const { splash, ...rest } = o;
+    const { splash, menus, rings, ...rest } = o;
     const c = await rawContext(Object.assign({ locale: 'bg-BG' }, rest));
     if (!splash) await c.addInitScript(() => { try { if (localStorage.getItem('gpxk.splash') == null) localStorage.setItem('gpxk.splash', 'true'); } catch (e) { /* */ } });
+    if (!rings) await c.addInitScript(() => { addEventListener('DOMContentLoaded', () => { const d = document.getElementById('dlgRings'); if (d) new MutationObserver(() => { if (d.open) document.getElementById('ringsKeep').click(); }).observe(d, { attributes: true, attributeFilter: ['open'] }); }); });
+    if (!menus) {
+      const rawPage = c.newPage.bind(c);
+      c.newPage = async () => {
+        const pg = await rawPage(), click = pg.mouse.click.bind(pg.mouse);
+        pg.mouse.click = async (x, y, opt) => {
+          await click(x, y, opt);
+          await pg.evaluate(() => { const m = document.querySelector('#objMenu'); if (m && !m.hidden && m.dataset.kind === 'seg') m.querySelector('#omBtns button').click(); }).catch(() => {});
+        };
+        return pg;
+      };
+    }
     return c;
   };
   // След "Стоп" излиза прозорецът "Запис на изминатото" (записът е вече направен суров); "Отказ" го затваря.
@@ -1088,9 +1104,9 @@ function barFits() {
   // Версия: в дъното и в името на кеша от sw.js.
   const verText = (await p5.textContent('#appVersion')).trim();
   const ver = (verText.match(/^\d+\.\d+\.\d+/) || [''])[0];
-  check(ver === '1.2.0' && await p5.isVisible('#appVersion') && /^Версия 1\.2\.0 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
+  check(ver === '1.3.0' && await p5.isVisible('#appVersion') && /^Версия 1\.3\.0 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
   const swCache = (() => { const ctx = { importScripts: f => vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx), addEventListener: () => {} }; ctx.self = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8') + ';this.__c = CACHE;', ctx); return ctx.__c; })();
-  check(swCache === 'gpxk-v28-1.2.0' && swCache === 'gpxk-v28-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
+  check(swCache === 'gpxk-v29-1.3.0' && swCache === 'gpxk-v29-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
   const liveCaches = await p5.evaluate(() => navigator.serviceWorker.ready.then(() => new Promise(r => { const t0 = Date.now(); (function poll() { caches.keys().then(k => (k.length || Date.now() - t0 > 8000) ? r(k) : setTimeout(poll, 100)); })(); })));
   check(liveCaches.length === 1 && liveCaches[0] === swCache, 'в браузъра работникът е създал кеш ' + JSON.stringify(liveCaches));
   // Бутоните са неактивни, когато няма какво да изчистят.
@@ -2225,6 +2241,203 @@ function barFits() {
     await pt.keyboard.press('Escape');
     check(!et.length, '1.2.0: автоматичен превод - конзолата е чиста' + (et.length ? ': ' + et.join(' | ') : ''));
     await ct.close();
+  }
+
+  // ---- 1.3.0: разклоненията - меню на пръстен и на участък, изтриване, излишни пръстени ----
+  {
+    const MPDL = 6371008.8 * Math.PI / 180, KX = Math.cos(42.5 * Math.PI / 180) * MPDL;
+    const lonAt = d => 24.70 + d / KX, latAt = m => 42.5 + m / MPDL;
+    // RX на изток; RY слиза до 18 м над RX при км 1,0; RW свършва върху RX при км 1,025 (два пръстена на 25 м по RX);
+    // RV пресича RX при км 2,5 (пресичане без избор).
+    const rFiles = [
+      writeGpx('RX', line(42.5, 24.70, 42.5, 24.76, 300)),
+      writeGpx('RY', line(latAt(300), lonAt(1000), latAt(18), lonAt(1000), 30)),
+      writeGpx('RW', line(latAt(-300), lonAt(1025), 42.5, lonAt(1025), 30)),
+      writeGpx('RV', line(latAt(400), lonAt(2500), latAt(-400), lonAt(2500), 60))
+    ];
+    const cr = await browser.newContext({ viewport: { width: 760, height: 900 }, acceptDownloads: true, menus: true, rings: true });
+    const pr = await cr.newPage();
+    const er = [];
+    pr.on('pageerror', e => er.push('pageerror: ' + e.message));
+    pr.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text()) && !/api\.opentopodata\.org/.test(m.text())) er.push('console: ' + m.text()); });
+    const rready = () => pr.waitForFunction(() => window.__gpxk && window.__gpxk.ready, null, { timeout: 15000 });
+    await pr.goto(url); await rready();
+    await pr.setInputFiles('#fileInput', rFiles);
+    await pr.waitForFunction(() => __gpxk.S.tracks.length === 4);
+    const dlgOpen = await pr.waitForFunction(() => document.querySelector('#dlgRings').open, null, { timeout: 3000 }).then(() => true, () => false);
+    const ringsDlg = () => pr.evaluate(() => ({ open: document.querySelector('#dlgRings').open, h: document.querySelector('#dlgRings h3').textContent.replace(/\s+/g, ' ').trim(),
+      rows: [...document.querySelectorAll('#ringsList li')].map(li => ({ t: li.textContent.trim(), c: li.querySelector('input').checked })),
+      js: __gpxk.A.junctions.length, drop: __gpxk.S.dropJ.length, kept: __gpxk.S.keptJ.length,
+      row: document.querySelector('#ringsRow').hidden ? '' : document.querySelector('#ringsRow').textContent.replace(/\s+/g, ' ').trim() }));
+    const rs0 = await ringsDlg();
+    check(dlgOpen && rs0.h === 'Излишни пръстени (2)' && rs0.rows.length === 2 && rs0.rows.every(r => r.c) && /^RX\.gpx · км 1,0 — до друг пръстен 2\d\sм$/.test(rs0.rows[0].t) && rs0.rows[1].t === 'RX.gpx · км 2,5 — без избор',
+      '1.3.0: след зареждане излиза „Излишни пръстени (2)“, отметнат е всеки ред: ' + JSON.stringify(rs0.rows));
+    check(rs0.js === 3 && rs0.drop === 0, '1.3.0: докато списъкът е отворен, нищо не е махнато (' + rs0.js + ' пръстена)');
+    await pr.keyboard.press('Escape');
+    const rs1 = await ringsDlg();
+    check(rs1.js === 3 && rs1.drop === 0 && rs1.kept === 0 && (rs1.open || rs1.row === 'Излишни пръстени: 2 · Прегледай'), '1.3.0: Escape не маха нито един пръстен: ' + JSON.stringify({ open: rs1.open, js: rs1.js, row: rs1.row }));
+    if (!rs1.open) await pr.click('#ringsOpen');
+    await pr.click('#ringsKeep');
+    const rs2 = await ringsDlg();
+    check(!rs2.open && rs2.js === 3 && rs2.drop === 0 && rs2.kept === 2 && rs2.row === 'Излишни пръстени: 2 · Прегледай', '1.3.0: „Задръж всички“ затваря списъка, без да маха; ред под картата: ' + JSON.stringify(rs2.row));
+    // Записът в хранилището (evaluate чака обещанието, waitForFunction - не).
+    const dbHas = async f => { for (let i = 0; i < 60; i++) { if (await pr.evaluate(f)) return true; await pr.waitForTimeout(100); } return false; };
+    check(await dbHas(() => U.DB.get('collection').then(c => !!c && (c.keptJ || []).length === 2)), '1.3.0: „Задръж всички“ е записано в колекцията');
+    await pr.reload(); await rready();
+    await pr.waitForTimeout(300); // нищо не бива да изскочи и малко след старта
+    const rs3 = await ringsDlg();
+    check(!rs3.open && rs3.js === 3 && rs3.row === 'Излишни пръстени: 2 · Прегледай', '1.3.0: при следващо зареждане „Задръж всички“ не се връща: списъкът не излиза сам, редът под картата го има: ' + JSON.stringify({ open: rs3.open, row: rs3.row }));
+    await pr.click('#ringsOpen');
+    const rs4 = await ringsDlg();
+    check(rs4.open && rs4.rows.length === 2 && rs4.rows.every(r => !r.c), '1.3.0: редът под картата отваря същия списък; задържаните са без отметка');
+    await pr.click('#ringsDrop');
+    const rs5 = await ringsDlg();
+    check(!rs5.open && rs5.js === 3 && rs5.drop === 0, '1.3.0: „Махни отметнатите“ без отметки не маха нищо');
+    const nParts = () => pr.evaluate(() => __gpxk.S.tracks.map(t => (__gpxk.A.byTrack[t.id] || []).filter(s => s.kind === 'part').length));
+    const trRow = i => pr.evaluate(i => { const li = document.querySelector('#tracksList li[data-track="' + __gpxk.S.tracks[i].id + '"]'); return { t: li.querySelector('.t').textContent.replace(/\s+/g, ' ').trim(), v: li.querySelector('.v').firstChild.textContent.trim() }; }, i);
+    const np0 = await nParts();
+    await pr.click('#ringsOpen');
+    await pr.check('#ringsList li:nth-child(2) input');
+    await pr.click('#ringsDrop');
+    const rs6 = await ringsDlg(), np1 = await nParts(), trV = await trRow(3);
+    check(rs6.js === 2 && rs6.drop === 1 && np0[0] === 3 && np1[0] === 2 && np0[3] === 2 && np1[3] === 1 && rs6.row === 'Излишни пръстени: 1 · Прегледай' && /· 1 участък$/.test(trV.t),
+      '1.3.0: отметнатият пръстен (пресичането) пада: RX ' + np0[0] + ' → ' + np1[0] + ' участъка, RV ' + np0[3] + ' → ' + np1[3] + ' („' + trV.t + '“), ред: ' + rs6.row);
+    await pr.click('#undoBtn');
+    const rs7 = await ringsDlg(), np2 = await nParts();
+    check(rs7.js === 3 && rs7.drop === 0 && np2[0] === 3 && rs7.row === 'Излишни пръстени: 2 · Прегледай', '1.3.0: „Отмени“ връща махнатия от списъка пръстен');
+
+    // Менюто на пръстен и на участък - на 360 / 560 / 760 px и 390x844.
+    const crossRing = () => pr.evaluate(() => { const j = __gpxk.A.junctions.find(j => j.cross); if (!j) return null; const at = j.ring || [j.lat, j.lon], q = __gpxk.map.project(at[0], at[1]), b = document.querySelector('#map').getBoundingClientRect(); return { x: b.left + q.x, y: b.top + q.y }; });
+    const menuState = () => pr.evaluate(() => { const m = document.querySelector('#objMenu'), r = m.getBoundingClientRect(), w = document.querySelector('#mapwrap').getBoundingClientRect();
+      return { open: !m.hidden, kind: m.dataset.kind, title: document.querySelector('#omTitle').textContent, sub: document.querySelector('#omSub').textContent, btns: [...m.querySelectorAll('button')].map(b => b.textContent),
+        inMap: r.width > 150 && r.left >= w.left - 0.5 && r.right <= Math.min(w.right, innerWidth) + 0.5 && r.top >= w.top - 0.5 && r.bottom <= Math.min(w.bottom, innerHeight) + 0.5, bar: document.body.classList.contains('bar-hidden') }; });
+    const routeSt = () => pr.evaluate(() => { const r = __gpxk.S.routes.find(x => x.id === __gpxk.S.curId); return { items: r.items.length, len: __gpxk.G.len, pts: JSON.stringify(__gpxk.G.pts), sLen: document.querySelector('#sLen').textContent }; });
+    const showCross = () => pr.evaluate(() => { const j = __gpxk.A.junctions.find(j => j.cross) || { lat: 42.5, lon: 24.70 + 2500 / (Math.cos(42.5 * Math.PI / 180) * 6371008.8 * Math.PI / 180) }; __gpxk.map.setView(j.lat, j.lon, 16); });
+    // Празно място на картата до пръстена, извън отвореното меню.
+    const awayFrom = rg => pr.evaluate(rg => { const m = document.querySelector('#objMenu').getBoundingClientRect(), b = document.querySelector('#map').getBoundingClientRect();
+      const c = [[-70, -70], [70, -70], [-70, 70], [70, 70], [-90, 90], [90, 90], [-90, -90], [90, -90]].map(d => ({ x: rg.x + d[0], y: rg.y + d[1] }));
+      return c.find(q => !(q.x > m.left - 12 && q.x < m.right + 12 && q.y > m.top - 12 && q.y < m.bottom + 12) && q.x > b.left + 50 && q.x < b.right - 50 && q.y > b.top + 120 && q.y < b.bottom - 60); }, rg);
+    for (const [w, h] of [[360, 740], [560, 800], [760, 900], [390, 844]]) {
+      await pr.setViewportSize({ width: w, height: h });
+      await pr.evaluate(() => window.scrollTo(0, 0));
+      await pr.waitForFunction(() => Math.abs(__gpxk.map.w - document.querySelector('#map').clientWidth) < 1);
+      await showCross();
+      const rg = await crossRing(), bar0 = (await menuState()).bar;
+      await pr.mouse.click(rg.x, rg.y);
+      const m0 = await menuState();
+      await pr.screenshot({ path: path.join(OUT, 'junction-menu-' + w + '.png') });
+      check(m0.open && m0.kind === 'junc' && m0.title === 'Разклонение' && m0.sub === 'RX.gpx × RV.gpx' && m0.btns[0] === 'Изтрий разклонението' && m0.btns[m0.btns.length - 1] === 'Отказ' && m0.inMap,
+        '1.3.0, ' + w + 'x' + h + ': клик върху пръстена отваря менюто „Разклонение“ (в картата): ' + JSON.stringify({ sub: m0.sub, btns: m0.btns, inMap: m0.inMap }));
+      await pr.click('#objMenu [data-om="cancel"]');
+      const m1 = await menuState();
+      await pr.mouse.click(rg.x, rg.y);
+      const m2 = await menuState();
+      const aw = await awayFrom(rg);
+      await pr.mouse.click(aw.x, aw.y); // празно място на картата
+      const m3 = await menuState();
+      check(!m1.open && m2.open && !m3.open && m3.bar === bar0, '1.3.0, ' + w + 'px: „Отказ“ и клик встрани затварят менюто (кликът встрани не пипа лентата)');
+      await pr.mouse.click(rg.x + 60, rg.y);
+      const m4 = await menuState();
+      await pr.screenshot({ path: path.join(OUT, 'segment-menu-' + w + '.png') });
+      check(m4.open && m4.kind === 'seg' && /^Участък · км 2,5 - 4,9$/.test(m4.title) && /^RX\.gpx · 2,4\sкм$/.test(m4.sub) && JSON.stringify(m4.btns) === '["Добави в маршрута","Изтрий участъка","Отказ"]' && m4.inMap,
+        '1.3.0, ' + w + 'px: клик върху участък отваря неговото меню: ' + JSON.stringify({ title: m4.title, sub: m4.sub, btns: m4.btns, inMap: m4.inMap }));
+      await pr.click('#objMenu [data-om="cancel"]');
+      await pr.mouse.click(rg.x + 60, rg.y);
+      const aw2 = await awayFrom(rg);
+      await pr.mouse.click(aw2.x, aw2.y);
+      const m5 = await menuState(), r5 = await routeSt();
+      check(!m5.open && r5.items === 0, '1.3.0, ' + w + 'px: менюто на участък се затваря с „Отказ“ и с клик встрани, маршрутът не се пипа');
+    }
+
+    // Маршрут направо по RX през пресичането, после „Изтрий разклонението“.
+    await pr.setViewportSize({ width: 760, height: 900 });
+    await pr.waitForFunction(() => Math.abs(__gpxk.map.w - document.querySelector('#map').clientWidth) < 1);
+    await showCross();
+    let rg = await crossRing();
+    for (const dx of [-60, 60]) { await pr.mouse.click(rg.x + dx, rg.y); await pr.click('#objMenu [data-omk="add"]'); }
+    const R0 = await routeSt(), trX0 = await trRow(0);
+    check(R0.items === 2, '1.3.0: „Добави в маршрута“ слага участъка в маршрута (две части по RX)');
+    await pr.mouse.click(rg.x, rg.y);
+    const mj = await menuState();
+    check(mj.btns.filter(b => /^Продължи по RV\.gpx · /.test(b)).length === 2, '1.3.0: маршрутът минава през пръстена - менюто дава „Продължи по“ клоновете на RV: ' + JSON.stringify(mj.btns));
+    await pr.click('#objMenu [data-omk="delj"]');
+    const R1 = await routeSt(), np3 = await nParts(), trX1 = await trRow(0), trV1 = await trRow(3);
+    const ringGone = await pr.evaluate(([x, y]) => { const b = document.querySelector('#map').getBoundingClientRect(); return !__gpxk.A.junctions.some(j => j.cross) && !(__gpxk.ui.rings || []).some(r => Math.hypot(b.left + r.x - x, b.top + r.y - y) < 14); }, [rg.x, rg.y]);
+    check(ringGone && np3[0] === 2 && np3[3] === 1 && /· 2 участъка$/.test(trX1.t) && /· 1 участък$/.test(trV1.t), '1.3.0: „Изтрий разклонението“ - пръстенът го няма, тракът се чете цял: „' + trX0.t + '“ → „' + trX1.t + '“, „' + trV1.t + '“');
+    // Слетата част минава през същите точки на трака; отпада само вмъкнатата точка на разреза (на самата линия).
+    const P0 = JSON.parse(R0.pts).map(p => JSON.stringify(p)), P1 = JSON.parse(R1.pts).map(p => JSON.stringify(p)), extra = P0.filter(p => !P1.includes(p));
+    check(R1.items === 1 && Math.abs(R1.len - R0.len) < 1e-6 && R1.sLen === R0.sLen && extra.length <= 1 && JSON.stringify(P0.filter(p => P1.includes(p))) === JSON.stringify(P1),
+      '1.3.0: маршрутът продължава направо - двете части стават една, дължината е същата (' + R0.sLen + ', разлика ' + (R1.len - R0.len).toExponential(1) + ' м), точките - същите без точката на разреза (' + P0.length + ' → ' + P1.length + ')');
+    await pr.click('#undoBtn');
+    const R2 = await routeSt(), np4 = await nParts();
+    check(R2.items === 2 && R2.pts === R0.pts && np4[0] === 3 && !!(await crossRing()), '1.3.0: „Отмени“ връща разклонението и двете части');
+
+    // „Изтрий участъка“ върху част от маршрута: изчезва от картата, от дължината на трака и от маршрута.
+    rg = await crossRing();
+    await pr.mouse.click(rg.x + 60, rg.y);
+    const ms = await menuState();
+    check(ms.kind === 'seg' && JSON.stringify(ms.btns) === '["Махни от маршрута","Изтрий участъка","Отказ"]', '1.3.0: клик върху част от маршрута - меню „Махни от маршрута“ / „Изтрий участъка“: ' + JSON.stringify(ms.btns));
+    await pr.click('#objMenu [data-omk="del"]');
+    await pr.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+    const R3 = await routeSt(), trX3 = await trRow(0);
+    const del = await pr.evaluate(() => { const t = __gpxk.S.tracks[0], d = (t.dels || [])[0], A = __gpxk.A;
+      return { n: (t.dels || []).length, a: d && d.a, b: d && d.b, len: t.len, over: A.byTrack[t.id].some(s => s.kind === 'part' && s.b > d.a + 1 && s.a < d.b - 1), drawn: Math.max(...(__gpxk.ui.drawn[t.id] || []).map(iv => iv[1])),
+        kmExp: U.km(t.len - (d.b - d.a)), routeOver: __gpxk.S.routes.find(x => x.id === __gpxk.S.curId).items.some(it => it.trackId === t.id && Math.max(it.a, it.b) > d.a + 1) }; });
+    check(del.n === 1 && Math.abs(del.a - 2500) < 40 && Math.abs(del.b - del.len) < 1 && !del.over && del.drawn <= del.a + 1, '1.3.0: изтритата отсечка я няма на картата (чертае се до км ' + (del.drawn / 1000).toFixed(2) + ') и не е участък');
+    check(trX3.v === del.kmExp && trX3.v !== trX0.v && /изтрити 2,4\sкм/.test(trX3.t), '1.3.0: дължината на трака в списъка е без изтритото: ' + trX0.v + ' → ' + trX3.v + ' („' + trX3.t + '“)');
+    check(R3.items === 1 && !del.routeOver && Math.abs(R0.len - R3.len - (del.b - del.a)) < 30, '1.3.0: изтритата отсечка излиза от маршрута: ' + R0.sLen + ' → ' + R3.sLen);
+    await pr.mouse.click(rg.x + 60, rg.y);
+    check(!(await menuState()).open, '1.3.0: клик на мястото на изтритото не отваря нищо');
+    // И разклонението, и участъкът - „Отмени“ връща двете.
+    await pr.mouse.click(rg.x, rg.y);
+    await pr.click('#objMenu [data-omk="delj"]');
+    const np5 = await nParts();
+    await pr.click('#undoBtn'); await pr.click('#undoBtn');
+    const R4 = await routeSt(), np6 = await nParts(), trX4 = await trRow(0);
+    check(np5[3] === 1 && R4.items === 2 && R4.pts === R0.pts && np6[0] === 3 && np6[3] === 2 && trX4.v === trX0.v && !!(await crossRing()), '1.3.0: „Отмени“ два пъти връща и разклонението, и участъка - маршрутът е точка-в-точка както преди');
+
+    // Изтритото разклонение се помни: след презареждане не се връща.
+    rg = await crossRing();
+    await pr.mouse.click(rg.x, rg.y);
+    await pr.click('#objMenu [data-omk="delj"]');
+    check(await dbHas(() => U.DB.get('collection').then(c => !!c && (c.dropJ || []).length === 1)), '1.3.0: изтритото разклонение е записано в колекцията');
+    await pr.reload(); await rready();
+    const rl = await pr.evaluate(() => ({ cross: __gpxk.A.junctions.some(j => j.cross), js: __gpxk.A.junctions.length, items: __gpxk.S.routes.find(x => x.id === __gpxk.S.curId).items.length }));
+    check(!rl.cross && rl.js === 2 && rl.items === 1, '1.3.0: след презареждане изтритото разклонение не се връща: ' + JSON.stringify(rl));
+
+    // Близкият трак (RY свършва на 18 м от RX) само се предлага в менюто на разклонението - нищо не пада само.
+    const ringOf = ti => pr.evaluate(ti => { const j = __gpxk.A.junctions.find(j => j.branches.some(b => b.trackId === __gpxk.S.tracks[ti].id)); __gpxk.map.setView(j.lat, j.lon, 16); const at = j.ring || [j.lat, j.lon], q = __gpxk.map.project(at[0], at[1]), b = document.querySelector('#map').getBoundingClientRect(); return { x: b.left + q.x, y: b.top + q.y }; }, ti);
+    await pr.evaluate(() => window.scrollTo(0, 0));
+    const ry = await ringOf(1);
+    await pr.mouse.click(ry.x, ry.y);
+    const mn = await menuState(), nt0 = await pr.evaluate(() => __gpxk.S.tracks.length);
+    check(nt0 === 4 && mn.open && mn.sub === 'RX.gpx × RY.gpx' && mn.btns.some(b => /^Изтрий близкия трак „RY\.gpx“ \(18\sм\)$/.test(b)), '1.3.0: близкият трак само се предлага в менюто на разклонението (всички 4 тракове са тук): ' + JSON.stringify(mn.btns));
+    pr.once('dialog', d => d.accept());
+    await pr.click('#objMenu [data-omk="near"]');
+    const nt1 = await pr.evaluate(() => __gpxk.S.tracks.map(t => t.name).join());
+    await pr.click('#undoBtn');
+    const nt2 = await pr.evaluate(() => __gpxk.S.tracks.length);
+    check(nt1 === 'RX.gpx,RW.gpx,RV.gpx' && nt2 === 4, '1.3.0: „Изтрий близкия трак“ (след потвърждение) маха RY, „Отмени“ го връща: ' + nt1);
+
+    // На английски: списъкът и менюто без кирилица (имената на траковете са на латиница), на 390x844.
+    await pr.setViewportSize({ width: 390, height: 844 });
+    await pr.evaluate(() => I18N.setPref('en'));
+    await pr.waitForFunction(() => document.documentElement.lang === 'en');
+    await pr.click('#ringsOpen');
+    const en = await pr.evaluate(() => { const d = document.querySelector('#dlgRings'), r = d.getBoundingClientRect(); return { txt: d.innerText, row: document.querySelector('#ringsRow').textContent, fits: r.left >= 0 && r.right <= innerWidth + 0.5 }; });
+    await pr.screenshot({ path: path.join(OUT, 'rings-390-en.png') });
+    check(!/[Ѐ-ӿ]/.test(en.txt + en.row) && /Extra rings \(1\)/.test(en.txt) && /next to another ring/.test(en.txt) && /Remove the ticked/.test(en.txt) && /Keep all/.test(en.txt) && en.fits, '1.3.0, en, 390 px: „Extra rings“ без кирилица и се събира: ' + JSON.stringify(en.txt.replace(/\s+/g, ' ')));
+    await pr.click('#ringsKeep');
+    await pr.evaluate(() => window.scrollTo(0, 0)); // редът под картата е превъртял страницата
+    await pr.waitForFunction(() => Math.abs(__gpxk.map.w - document.querySelector('#map').clientWidth) < 1);
+    const nr = await pr.evaluate(() => { const j = __gpxk.A.junctions.find(j => j.branches.some(b => b.trackId === __gpxk.S.tracks[2].id)); __gpxk.map.setView(j.lat, j.lon, 16); const at = j.ring || [j.lat, j.lon], q = __gpxk.map.project(at[0], at[1]), b = document.querySelector('#map').getBoundingClientRect(); return { x: b.left + q.x, y: b.top + q.y }; });
+    await pr.mouse.click(nr.x, nr.y);
+    const me = await menuState();
+    check(me.open && me.title === 'Junction' && me.btns[0] === 'Delete junction' && me.btns.includes('Cancel') && !/[Ѐ-ӿ]/.test(me.title + me.sub + me.btns.join('')) && me.inMap, '1.3.0, en: менюто на пръстена е на английски: ' + JSON.stringify(me));
+    await pr.keyboard.press('Escape');
+    check(!(await menuState()).open, '1.3.0: Escape затваря менюто');
+    check(!er.length, '1.3.0: разклонения - конзолата е чиста' + (er.length ? ': ' + er.join(' | ') : ''));
+    await cr.close();
   }
 
   check(errors.length === 0, 'конзолата е чиста' + (errors.length ? ': ' + errors.join(' | ') : ''));

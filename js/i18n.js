@@ -274,11 +274,11 @@ I18N.add({
   'prof.t': ['Профил', 'Profile'],
   'prof.pct': ['Наклон в проценти', 'Grade in percent'],
   'prof.aria': ['Профил на височината', 'Elevation profile'],
-  'hint': ['Клик върху сегмент го слага в маршрута като следваща част. Пръстенът е точка на прекъсване: клик върху клона, по който маршрутът да продължи, сменя посоката там. Дублиращите се участъци са извън маршрута, а общата отсечка между две части се минава веднъж. Посочването на ред в списъка светва същия сегмент на картата.', 'Clicking a segment adds it to the route as the next part. A ring is a junction: clicking the branch the route should continue along changes the direction there. Duplicate stretches stay out of the route, and a stretch shared by two parts is ridden once. Pointing at a row in the list highlights the same segment on the map.'],
+  'hint': ['Клик върху сегмент отваря меню: „Добави в маршрута“ го слага като следваща част, „Изтрий участъка“ го маха от картата, от трака и от маршрута. Пръстенът е точка на разклонение: клик върху него отваря менюто му - „Продължи по“ сменя посоката там, „Изтрий разклонението“ слива двете парчета на трака. Дублиращите се участъци са извън маршрута, а общата отсечка между две части се минава веднъж. Посочването на ред в списъка светва същия сегмент на картата.', 'Clicking a segment opens a menu: “Add to route” adds it as the next part, “Delete stretch” removes it from the map, the track and the route. A ring is a junction: clicking it opens its menu - “Continue along” changes the direction there, “Delete junction” joins the two pieces of the track. Duplicate stretches stay out of the route, and a stretch shared by two parts is ridden once. Pointing at a row in the list highlights the same segment on the map.'],
   'parts.h': ['Части в маршрута', 'Parts in the route'],
   'parts.clear.title': ['Махни всички части; траковете остават. "Отмени" ги връща.', 'Remove all parts; the tracks stay. “Undo” brings them back.'],
   'parts.clear': ['Изтрий', 'Clear'],
-  'parts.empty': ['Още няма части. Клик върху трак на картата го слага в маршрута.', 'No parts yet. Clicking a track on the map adds it to the route.'],
+  'parts.empty': ['Още няма части. Клик върху трак на картата → „Добави в маршрута“.', 'No parts yet. Click a track on the map → “Add to route”.'],
   'pts.h': ['Точки', 'Points'],
   'pts.note': ['Чертаните точки затварят дупки между частите. Точка с име излиза като спирка (waypoint) в .gpx файла. На телефон: задръж точка, за да я преместиш; докосни я и избери "Махни".', 'Drawn points close gaps between parts. A named point is exported as a waypoint in the .gpx file. On a phone: hold a point to move it; tap it and choose “Remove”.'],
   'tracks.h': ['Тракове-източници', 'Source tracks'],
@@ -594,6 +594,37 @@ I18N.add({
   'gpx.bad': ['Този файл не изглежда като GPX. Пробвай .gpx файл от друго приложение.', 'This file does not look like GPX. Try a .gpx file from another app.'],
   'gpx.track': ['трак', 'track'],
   'gpx.onlyWpts': ['Във файла има само точки, без трак. Нужен е трак или маршрут.', 'The file has only points, no track. A track or a route is needed.']
+});
+
+/* ---- 1.3.0: разклоненията - меню, изтриване, излишни пръстени ---- */
+I18N.add({
+  'om.seg': ['Участък', 'Stretch'],
+  'om.junc': ['Разклонение', 'Junction'],
+  'om.add': ['Добави в маршрута', 'Add to route'],
+  'om.fork': ['Продължи по този клон', 'Continue along this branch'],
+  'om.out': ['Махни от маршрута', 'Remove from route'],
+  'om.delSeg': ['Изтрий участъка', 'Delete stretch'],
+  'om.delJ': ['Изтрий разклонението', 'Delete junction'],
+  'om.go': ['Продължи по {name} · {len}', 'Continue along {name} · {len}'],
+  'om.delNear': ['Изтрий близкия трак „{name}“ ({d})', 'Delete the nearby track “{name}” ({d})'],
+  'tip.segMenu': ['Клик - меню: добави или изтрий', 'Click - menu: add or delete'],
+  'tip.itemMenu': ['Клик - меню: махни от маршрута или изтрий участъка', 'Click - menu: remove from the route or delete the stretch'],
+  'tip.juncMenu': ['Клик - меню: посока или изтриване', 'Click - menu: direction or delete'],
+  'msg.juncDel': ['Разклонението е изтрито - тракът се чете цял. "Отмени" го връща.', 'The junction is deleted - the track reads whole. “Undo” brings it back.'],
+  'msg.segDel': ['Участъкът е изтрит ({len}) - няма го на картата, в трака и в маршрута. "Отмени" го връща.', 'The stretch is deleted ({len}) - gone from the map, the track and the route. “Undo” brings it back.'],
+  'msg.ringsDropped.1': ['Махнат е {n} излишен пръстен. "Отмени" го връща.', '{n} extra ring removed. “Undo” brings it back.'],
+  'msg.ringsDropped.n': ['Махнати са {n} излишни пръстена. "Отмени" ги връща.', '{n} extra rings removed. “Undo” brings them back.'],
+  'tr.parts.1': ['{n} участък', '{n} stretch'],
+  'tr.parts.n': ['{n} участъка', '{n} stretches'],
+  'tr.dels': ['изтрити {len}', '{len} deleted'],
+  'rings.h': ['Излишни пръстени', 'Extra rings'],
+  'rings.note': ['Нищо не се маха, докато не потвърдиш. Отметка на ред = този пръстен да падне; двете парчета на трака се сливат.', 'Nothing is removed until you confirm. A tick on a row = this ring goes; the two pieces of the track join.'],
+  'rings.cross': ['{name} · км {km} — без избор', '{name} · km {km} — no choice'],
+  'rings.near': ['{name} · км {km} — до друг пръстен {d}', '{name} · km {km} — next to another ring {d}'],
+  'rings.drop': ['Махни отметнатите', 'Remove the ticked'],
+  'rings.keep': ['Задръж всички', 'Keep all'],
+  'rings.row': ['Излишни пръстени: {n}', 'Extra rings: {n}'],
+  'rings.review': ['Прегледай', 'Review']
 });
 
 /* ---- Прозорецът „Език“ ---- */

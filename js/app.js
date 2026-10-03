@@ -24,7 +24,8 @@
   };
 
   // Състоянието, което се пази в браузъра.
-  var S = { tracks: [], routes: [], tol: 20, curId: null };
+  // dropJ - изтритите разклонения (мястото им), keptJ - излишните пръстени, оставени със „Задръж всички“.
+  var S = { tracks: [], routes: [], tol: 20, curId: null, dropJ: [], keptJ: [] };
   var A = { byTrack: {}, dups: [], pend: [], parts: [], gaps: [], closedGaps: [] }; // анализ на колекцията
   var G = null;     // геометрия на текущия маршрут
   var prof = null;  // профил на текущия маршрут
@@ -34,7 +35,7 @@
     grade: U.LS.get('grade', true), fold: U.LS.get('fold', {}), follower: null, pos: null, prog: null, followView: 'map',
     autoCenter: true, pin: null, profHover: null, picUrl: null, picMeta: null,
     orient: U.LS.get('orient', 'heading') === 'north' ? 'north' : 'heading', heading: null, lastWalk: null, lastPos: null, rot: 0, nameJob: null,
-    awake: U.LS.get('awake', true) !== false
+    awake: U.LS.get('awake', true) !== false, om: null, redundant: []
   };
   var map;
 
@@ -77,7 +78,7 @@
   function plainTrack(t) {
     return {
       id: t.id, name: t.name, title: t.title, color: t.color, pts: t.pts, breaks: t.breaks || [],
-      wpts: t.wpts || [], cuts: t.cuts || [], skips: t.skips || [], openGaps: t.openGaps || [], visible: t.visible !== false, created: t.created, walk: !!t.walk
+      wpts: t.wpts || [], cuts: t.cuts || [], dels: t.dels || [], skips: t.skips || [], openGaps: t.openGaps || [], visible: t.visible !== false, created: t.created, walk: !!t.walk
     };
   }
   function snapshotState() {
@@ -85,7 +86,7 @@
       format: 'gpx-konstruktor-kolekciya', version: 1,
       tracks: S.tracks.map(plainTrack),
       routes: S.routes.map(function (r) { return JSON.parse(JSON.stringify(r)); }),
-      tol: S.tol, curId: S.curId
+      tol: S.tol, curId: S.curId, dropJ: S.dropJ || [], keptJ: S.keptJ || []
     };
   }
   var saveSoon = U.debounce(saveNow, 500);
@@ -102,6 +103,7 @@
       // Старите колекции може да носят поле overrides (върнати дубликати) - то се пренебрегва.
       S.tracks = tracks; S.routes = routes;
       S.tol = data.tol != null && isFinite(+data.tol) ? +data.tol : 20; S.curId = data.curId || null;
+      S.dropJ = []; S.keptJ = [];
     } else {
       tracks.forEach(function (t) {
         var i = S.tracks.findIndex(function (x) { return x.id === t.id; });
@@ -113,6 +115,9 @@
       });
       if (data.curId && routes.some(function (r) { return r.id === data.curId; })) S.curId = data.curId;
     }
+    function places(l) { return (Array.isArray(l) ? l : []).filter(function (x) { return Array.isArray(x) && isFinite(x[0]) && isFinite(x[1]); }); }
+    S.dropJ = (S.dropJ || []).concat(places(data.dropJ));
+    S.keptJ = (S.keptJ || []).concat(places(data.keptJ));
     S.tracks.forEach(function (t) { delete t._cum; });
     S.routes.forEach(function (r) { r.walks = r.walks || []; r.items = r.items || []; r.forks = r.forks || []; r.openGaps = r.openGaps || []; });
     // Записите на изминатото до 1.0.6 носеха края на частта като брой точки, а не като метри по трака.
@@ -126,7 +131,7 @@
   // full: пълен отпечатък (траковете и целия текущ маршрут) - за "Нов", който маха и траковете.
   function pushUndo(full) {
     if (full) {
-      ui.undo.push(JSON.stringify({ full: true, rid: S.curId, tracks: S.tracks.map(plainTrack), route: cur() }));
+      ui.undo.push(JSON.stringify({ full: true, rid: S.curId, tracks: S.tracks.map(plainTrack), route: cur(), dropJ: S.dropJ, keptJ: S.keptJ }));
       if (ui.undo.length > 100) ui.undo.shift();
       $('#undoBtn').disabled = false;
       return;
@@ -135,6 +140,7 @@
       rid: S.curId, items: cur().items,
       cuts: S.tracks.map(function (t) { return [t.id, t.cuts || []]; }),
       skips: S.tracks.map(function (t) { return [t.id, t.skips || [], t.openGaps || []]; }),
+      dels: S.tracks.map(function (t) { return [t.id, t.dels || []]; }), dropJ: S.dropJ, keptJ: S.keptJ,
       forks: cur().forks || [], openGaps: cur().openGaps || [], smooth: cur().smooth || null
     }));
     if (ui.undo.length > 100) ui.undo.shift();
@@ -158,6 +164,10 @@
     }
     s.cuts.forEach(function (c) { var t = track(c[0]); if (t) t.cuts = c[1]; });
     (s.skips || []).forEach(function (c) { var t = track(c[0]); if (t) { t.skips = c[1]; t.openGaps = c[2]; } });
+    (s.dels || []).forEach(function (c) { var t = track(c[0]); if (t) t.dels = c[1]; });
+    if (s.dropJ) S.dropJ = s.dropJ;
+    if (s.keptJ) S.keptJ = s.keptJ;
+    hideObjMenu();
     ui.cut = null; ui.sel = null; ui.drawTarget = null;
     hidePointMenu();
     analyzeNow();
@@ -168,8 +178,10 @@
   function visibleTracks() { return S.tracks.filter(function (t) { return t.visible !== false; }); }
   function analyzeNow() {
     try {
-      A = Core.analyze(visibleTracks(), S.tol);
+      A = Core.analyze(visibleTracks(), S.tol, { drop: S.dropJ });
+      ui.redundant = Core.redundantJunctions(A.junctions, byId(), S.tol);
     } catch (e) {
+      ui.redundant = [];
       console.error(e);
       A = { byTrack: {}, dups: [], pend: [], parts: [], gaps: [], closedGaps: [] };
       toast(T('msg.dupErr', { e: e.message }), true);
@@ -330,7 +342,7 @@
 
   // Точките на трака без махнатите дубликати - по една поредица за всеки видим отрязък.
   function shownRanges(t, secs) {
-    var dups = secs.filter(function (s) { return s.kind === 'dup'; });
+    var dups = secs.filter(function (s) { return s.kind === 'dup' || s.kind === 'del'; });
     Core.prep(t);
     ui.drawn[t.id] = [];
     if (!dups.length) { ui.drawn[t.id].push([0, t.len]); return [t.pts]; }
@@ -407,7 +419,7 @@
     var drawn = [];
     // Клоновете: избраният се подчертава, другите се приглушават; при посочване светват всички.
     (A.junctions || []).forEach(function (j) {
-      var f = forkOf(j), hot = hv && hv.kind === 'fork' && hv.j === j;
+      var f = forkOf(j), hot = hv && hv.kind === 'fork' && hv.j === j || ui.om && ui.om.j === j;
       if (!hot && !(f && f.chosen >= 0)) return;
       j.branches.forEach(function (br, bi) {
         var t = tb[br.trackId]; if (!t || f && bi === f.incoming) return;
@@ -419,7 +431,7 @@
     (A.junctions || []).forEach(function (j) {
       var at = ringAt(j), q = pr(at[0], at[1]);
       if (q[0] < -20 || q[1] < -20 || q[0] > m.w + 20 || q[1] > m.h + 20) return;
-      var f = forkOf(j), sel = !!(f && f.chosen >= 0), hot = hv && hv.kind === 'fork' && hv.j === j;
+      var f = forkOf(j), sel = !!(f && f.chosen >= 0), hot = hv && hv.kind === 'fork' && hv.j === j || ui.om && ui.om.j === j;
       var r = sel ? 10 : 7;
       if (hot) r += 2;
       ctx.beginPath(); ctx.arc(q[0], q[1], r, 0, Math.PI * 2);
@@ -521,7 +533,7 @@
         stroke(ctx, col, 2.2);
       });
       secs.forEach(function (s) {
-        if (s.kind === 'part' || s.kind === 'dup') return;
+        if (s.kind === 'part' || s.kind === 'dup' || s.kind === 'del') return;
         var pts = Core.slice(t, s.a, s.b);
         path(ctx, pr, pts);
         if (s.kind === 'cut') { stroke(ctx, C.casing, 7); stroke(ctx, C.cut, 5, [2, 5]); }
@@ -538,6 +550,8 @@
       var ht = tb[hv.sec.trackId];
       if (ht) { path(ctx, pr, Core.slice(ht, hv.sec.a, hv.sec.b)); stroke(ctx, C.accent, 9); stroke(ctx, C.casing, 4); stroke(ctx, trackColor(ht), 2.5); }
     }
+    var om = ui.om && ui.om.sec, omt = om && tb[om.trackId];
+    if (omt) { path(ctx, pr, Core.slice(omt, om.a, om.b)); stroke(ctx, C.accent, 9); stroke(ctx, C.casing, 4); stroke(ctx, trackColor(omt), 2.5); }
     if (ui.hl && ui.hl.sec) {
       var hs = ui.hl.sec, htt = tb[hs.trackId];
       if (htt) { path(ctx, pr, Core.slice(htt, hs.a, hs.b)); ctx.globalAlpha = 0.45; stroke(ctx, C.accent, 12); ctx.globalAlpha = 1; }
@@ -806,7 +820,7 @@
       var secs = A.byTrack[nt.t.id] || [];
       var sec = secs.filter(function (s) { return s.kind !== 'gap' && n.d >= s.a && n.d <= s.b; })[0];
       // Махнат дубликат не се хваща: кликът върху него не прави нищо.
-      if (sec && sec.kind === 'dup') best = { kind: 'none', d: nt.d };
+      if (sec && (sec.kind === 'dup' || sec.kind === 'del')) best = { kind: 'none', d: nt.d };
       else if (sec) {
         if (sec.kind === 'cut') best = { kind: 'cut', sec: sec, d: nt.d };
         else best = { kind: 'part', sec: sec, d: nt.d };
@@ -822,17 +836,17 @@
       var inR = findItemFor(h.sec) >= 0;
       var fk = inR ? null : forkFor(h.sec);
       return U.esc(trackLabel(t)) + ' · ' + kmRange(h.sec.a, h.sec.b) + ' · <b>' + U.km(h.sec.len) + '</b><br>' +
-        (inR ? U.esc(T('tip.inRoute')) : fk ? U.esc(T('tip.fork')) : U.esc(T('tip.addAs', { n: G.count + 1 })));
+        (inR ? U.esc(T('tip.inRoute')) : fk ? U.esc(T('tip.fork')) : U.esc(T('tip.addAs', { n: G.count + 1 }))) + '<br>' + U.esc(T('tip.segMenu'));
     }
     if (h.kind === 'item') {
       if (h.g.link) return U.esc(T('tip.link')) + ' · <b>' + U.dist(h.g.len) + '</b><br>' + U.esc(T('tip.clickRemove'));
-      return U.esc(T('tip.part', { n: h.g.no })) + ' · <b>' + U.km(h.g.len) + '</b><br>' + U.esc(h.g.bad ? T('tip.invalid', { why: h.g.badWhy }) : T('tip.clickRemove'));
+      return U.esc(T('tip.part', { n: h.g.no })) + ' · <b>' + U.km(h.g.len) + '</b><br>' + U.esc(h.g.bad ? T('tip.invalid', { why: h.g.badWhy }) : T('tip.itemMenu'));
     }
     if (h.kind === 'gap') return U.esc(T('tip.gap')) + ' <b>' + U.dist(h.gap.d) + '</b><br>' + U.esc(T('tip.gapClick'));
     if (h.kind === 'fork') {
       var f = forkOf(h.j);
       return U.esc(T('tip.junction')) + ' · ' + U.esc(T.n('n.branches', h.j.branches.length)) + '<br>' +
-        U.esc(f && f.chosen >= 0 ? T('tip.forkSwitch') : T('tip.forkAdd'));
+        U.esc(T('tip.juncMenu'));
     }
     if (h.kind === 'vertex') return U.esc(T('tip.vertex'));
     if (h.kind === 'cut') return U.esc(T('tip.cut'));
@@ -845,7 +859,7 @@
     hoverRaf = requestAnimationFrame(function () {
       hoverRaf = null;
       var p2 = hoverP, tip = $('#tip');
-      var h = p2 && (ui.mode === 'select' || ui.mode === 'remove' || ui.mode === 'move') ? hitTest(p2) : null;
+      var h = p2 && !ui.om && (ui.mode === 'select' || ui.mode === 'remove' || ui.mode === 'move') ? hitTest(p2) : null;
       if (h && ui.mode !== 'select' && h.kind !== 'vertex') h = null;
       if (p2 && ui.mode === 'cut') {
         var nt = nearestTrack(p2, 16);
@@ -1086,6 +1100,8 @@
   }
 
   function onClick(p) {
+    // Отворено меню на разклонение или участък: клик встрани само го затваря.
+    if (ui.om) { hideObjMenu(); return; }
     hidePointMenu();
     $('#searchResults').hidden = true;
     if (ui.follower) { toggleBar(); return; }
@@ -1101,11 +1117,10 @@
     if (!h) { toggleBar(); return; }
     if (h.kind === 'none') return;
     if (h.kind === 'marker') { skipDup(h.sec); return; }
-    if (h.kind === 'fork') { toast(T('msg.forkClick')); return; }
-    var fk = h.kind === 'part' && findItemFor(h.sec) < 0 ? forkFor(h.sec) : null;
-    if (fk) switchFork(fk);
-    else if (h.kind === 'part') addPart(h.sec);
-    else if (h.kind === 'item') removeItem(h.idx);
+    if (h.kind === 'fork') { showJuncMenu(h.j); return; }
+    if (h.kind === 'part') { showSegMenu(h.sec, null, p); return; }
+    if (h.kind === 'item' && h.g.item.type === 'part') { showSegMenu(secAt(h.g.item, p), h.idx, p); return; }
+    if (h.kind === 'item') removeItem(h.idx);
     else if (h.kind === 'gap') closeGap(h.gap);
     else if (h.kind === 'vertex') showPointMenu(h);
     else if (h.kind === 'cut') toast(T('msg.isCut'));
@@ -1203,6 +1218,170 @@
     if (ui.sel) { ui.sel = null; if (map) map.redraw(); }
   }
 
+  // ---- Меню на разклонение и на участък ----
+  /* Клик (докосване) върху пръстен или участък отваря малко меню до него - като при точката.
+     Затваря се с „Отказ“, с Escape, с клик встрани или с местене на картата. */
+  function showObjMenu(sel, kind, title, sub, btns, at) {
+    hidePointMenu();
+    $('#tip').hidden = true;
+    var m = $('#objMenu'), box = $('#omBtns');
+    ui.om = sel; ui.omBtns = btns; ui.omView = JSON.stringify(map.getView());
+    m.dataset.kind = kind;
+    $('#omTitle').textContent = title;
+    $('#omSub').textContent = sub;
+    box.innerHTML = btns.map(function (b, i) {
+      return '<button type="button" class="btn sm' + (b.cls ? ' ' + b.cls : '') + '" data-om="' + i + '" data-omk="' + b.key + '"' +
+        (b.title ? ' title="' + U.esc(b.title) + '"' : '') + '>' + U.esc(b.label) + '</button>';
+    }).join('');
+    m.hidden = false;
+    var q = map.project(at[0], at[1]), w = m.offsetWidth, h = m.offsetHeight;
+    // Вътре във видимата част на картата: под горната лента и над долния край на екрана.
+    var mr = $('#mapwrap').getBoundingClientRect();
+    var bar = document.body.classList.contains('bar-hidden') ? 0 : Math.max(0, $('#bar').getBoundingClientRect().bottom - mr.top);
+    var top0 = Math.max(bar, -mr.top) + 6, bot = Math.min(map.h, window.innerHeight - mr.top) - 6, y = q.y + 18;
+    if (y + h > bot) y = q.y - h - 18;
+    m.style.left = Math.max(6, Math.min(map.w - w - 6, q.x - w / 2)) + 'px';
+    m.style.top = Math.max(top0, Math.min(bot - h, y)) + 'px';
+    if (window.matchMedia('(pointer: fine)').matches) box.querySelector('button').focus({ preventScroll: true });
+    map.redraw();
+  }
+  function hideObjMenu() {
+    var m = $('#objMenu');
+    if (m) m.hidden = true;
+    if (ui.om) { ui.om = null; ui.omBtns = null; if (map) map.redraw(); }
+  }
+  // Участъкът (от анализа) под клика върху част от маршрута.
+  function secAt(it, p) {
+    var t = track(it.trackId), lo = Math.min(it.a, it.b), hi = Math.max(it.a, it.b);
+    var n = t && Core.nearestOnTrack(t, p.lat, p.lon), d = n ? Math.max(lo, Math.min(hi, n.d)) : (lo + hi) / 2;
+    var sec = (A.byTrack[it.trackId] || []).filter(function (s) { return s.kind === 'part' && d >= s.a && d <= s.b; })[0];
+    return sec || { trackId: it.trackId, kind: 'part', a: lo, b: hi, len: hi - lo, key: it.trackId + ':' + Math.round(lo) };
+  }
+  // Меню на участък: първото копче е днешният клик (добави / продължи по клона / махни от маршрута).
+  function showSegMenu(sec, idx, p) {
+    var t = track(sec.trackId), btns = [];
+    if (idx != null) btns.push({ key: 'out', label: T('om.out'), run: function () { removeItem(idx); } });
+    else if (findItemFor(sec) >= 0) btns.push({ key: 'out', label: T('om.out'), run: function () { addPart(sec); } });
+    else {
+      var fk = forkFor(sec);
+      btns.push(fk ? { key: 'fork', label: T('om.fork'), run: function () { switchFork(fk); } }
+        : { key: 'add', label: T('om.add'), run: function () { addPart(sec); } });
+    }
+    btns[0].cls = 'pri';
+    btns.push({ key: 'del', cls: 'danger', label: T('om.delSeg'), run: function () { deleteSegment(sec); } });
+    showObjMenu({ sec: sec }, 'seg', T('om.seg') + ' · ' + kmRange(sec.a, sec.b), trackLabel(t) + ' · ' + U.km(sec.len), btns, [p.lat, p.lon]);
+  }
+  function showJuncMenu(j) {
+    var tb = byId(), names = [], f = forkOf(j), btns = [];
+    j.branches.forEach(function (br) { var n = trackLabel(tb[br.trackId]); if (names.indexOf(n) < 0) names.push(n); });
+    btns.push({ key: 'delj', cls: 'danger', label: T('om.delJ'), run: function () { deleteJunction(j); } });
+    // Продължи по клон: при маршрут, който минава оттук (или свършва тук).
+    if (f && !f.atStart) j.branches.forEach(function (br, bi) {
+      if (bi === f.chosen || bi === f.incoming) return;
+      var sec = { trackId: br.trackId, kind: 'part', a: br.a, b: br.b, len: br.len, key: br.key };
+      if (f.atEnd && findItemFor(sec) >= 0) return;
+      btns.push({ key: 'go', label: T('om.go', { name: trackLabel(tb[br.trackId]), len: U.km(br.len) }),
+        run: f.atEnd ? function () { addPart(sec); } : function () { switchFork({ fork: f, br: br }); } });
+    });
+    // Близък трак (краищата на два трака на по-малко от отклонението) - само предложение.
+    var lk = (j.links || []).slice().sort(function (a, b) { return a.d - b.d; })[0];
+    if (lk) {
+      var ia = S.tracks.indexOf(tb[j.branches[lk.a].trackId]), ib = S.tracks.indexOf(tb[j.branches[lk.b].trackId]);
+      var nt = S.tracks[Math.max(ia, ib)];
+      if (nt) btns.push({ key: 'near', label: T('om.delNear', { name: nt.name, d: U.dist(lk.d) }), run: function () { deleteTrack(nt); } });
+    }
+    var at = ringAt(j);
+    showObjMenu({ j: j }, 'junc', T('om.junc'), names.join(' × '), btns, at);
+  }
+  // Изтриване на разклонения: маршрутът се слива в точките, после анализът ги пропуска (S.dropJ).
+  function dropJunctions(js) {
+    var r = cur(), tb = byId();
+    js.forEach(function (j) {
+      var geo = Core.routeGeometry(r, tb, A), f = Core.routeForks(geo, [j], S.tol, tb)[0];
+      Core.dropJunction(r, f || null, j, S.tol);
+      S.dropJ = (S.dropJ || []).concat([Core.junctionPlace(j)]);
+    });
+    r.modified = Date.now();
+    ui.drawTarget = null;
+    analyzeNow();
+  }
+  function deleteJunction(j) {
+    pushUndo();
+    dropJunctions([j]);
+    toast(T('msg.juncDel'));
+  }
+  // "Изтрий участъка": изчезва от картата, от дължината на трака и от маршрута (t.dels).
+  function deleteSegment(sec) {
+    var t = track(sec.trackId); if (!t) return;
+    pushUndo();
+    t.dels = Core.mergeIv((t.dels || []).concat([{ a: sec.a, b: sec.b }]));
+    var r = cur();
+    r.items = Core.trimItems(r.items, sec.trackId, sec.a, sec.b);
+    r.modified = Date.now();
+    ui.drawTarget = null;
+    analyzeNow();
+    toast(T('msg.segDel', { len: U.km(sec.len) }));
+  }
+  function deleteTrack(t) {
+    var usedIn = S.routes.filter(function (r) { return r.items.some(function (it) { return it.trackId === t.id; }); }).length;
+    if (!confirm(T('confirm.delTrack', { name: t.name }) + (usedIn ? ' ' + T('confirm.usedIn', { n: usedIn }) : ''))) return;
+    pushUndo(true);
+    S.tracks = S.tracks.filter(function (x) { return x.id !== t.id; });
+    analyzeNow(); saveNow();
+  }
+
+  // ---- Излишните пръстени: списък с отметки, нищо не пада без потвърждение ----
+  function isKept(j) { return (S.keptJ || []).some(function (x) { return U.hav(x[0], x[1], j.lat, j.lon) <= Core.DROP_R; }); }
+  function ringLabel(x) {
+    var p = { name: trackLabel(track(x.trackId)), km: U.kmShort(x.d) };
+    if (x.why === 'cross') return T('rings.cross', p);
+    p.d = U.dist(x.dist);
+    return T('rings.near', p);
+  }
+  function renderRingsRow() {
+    var n = (ui.redundant || []).length;
+    $('#ringsRow').hidden = !n;
+    $('#ringsRowT').textContent = n ? T('rings.row', { n: n }) : '';
+  }
+  // Отметнати по подразбиране са всички, освен вече задържаните.
+  function openRings() {
+    var list = (ui.redundant || []).slice(), d = $('#dlgRings');
+    if (!list.length) return;
+    ui.ringList = list;
+    $('#ringsN').textContent = '(' + list.length + ')';
+    $('#ringsList').innerHTML = list.map(function (x, i) {
+      return '<li><label class="ring-row"><input type="checkbox" data-ri="' + i + '"' + (isKept(x.j) ? '' : ' checked') + '><span>' + U.esc(ringLabel(x)) + '</span></label></li>';
+    }).join('');
+    hideObjMenu();
+    if (!d.open) { if (d.showModal) d.showModal(); else d.setAttribute('open', ''); }
+  }
+  // След зареждане: списъкът излиза сам, ако има излишни пръстени, които не са задържани.
+  function askRings() {
+    if (!(ui.redundant || []).some(function (x) { return !isKept(x.j); })) return;
+    var imp = $('#dlgImport');
+    if (imp.open) {
+      if (!ui.ringsWait) { ui.ringsWait = true; imp.addEventListener('close', function () { ui.ringsWait = false; askRings(); }, { once: true }); }
+      return;
+    }
+    if (document.querySelector('dialog[open]')) return;
+    openRings();
+  }
+  function ringsDone(drop) {
+    var js = [], keep = [];
+    $$('#ringsList input[data-ri]').forEach(function (c) {
+      var x = ui.ringList && ui.ringList[+c.dataset.ri];
+      if (x) (drop && c.checked ? js : keep).push(x.j);
+    });
+    var d = $('#dlgRings');
+    if (d.open) d.close();
+    if (js.length) pushUndo();
+    keep.forEach(function (j) { if (!isKept(j)) S.keptJ = (S.keptJ || []).concat([Core.junctionPlace(j)]); });
+    if (js.length) {
+      dropJunctions(js);
+      toast(T.n('msg.ringsDropped', js.length));
+    } else { saveNow(); renderRingsRow(); }
+  }
+
   function setMode(m) {
     ui.mode = m;
     $$('#tools [data-mode]').forEach(function (b) { b.classList.toggle('on', b.dataset.mode === m); });
@@ -1211,6 +1390,7 @@
     if (m !== 'add') ui.drawTarget = m === 'select' ? null : ui.drawTarget;
     updateCutBox();
     hidePointMenu();
+    hideObjMenu();
     $('#tip').hidden = true;
     if (m === 'cut') toast(T('msg.cutMode'));
     else if (m === 'add') toast(ui.drawTarget != null ? T('msg.addLink') : G && G.count >= 2 ? T('msg.addBetween') : T('msg.addEnd'));
@@ -1240,6 +1420,7 @@
     renderCuts();
     renderRoutes();
     renderPicCard();
+    renderRingsRow();
     drawProfile();
     $('#routeName').value = cur().name;
     document.title = cur().name + ' · CX Tracks';
@@ -1363,11 +1544,16 @@
     $('#tracksList').innerHTML = S.tracks.map(function (t) {
       Core.prep(t);
       var cutL = (t.cuts || []).reduce(function (s, c) { return s + (c.b - c.a); }, 0);
+      // Изтритите участъци не се броят в дължината; участъците - колко са след разрязването.
+      var delL = Core.mergeIv(t.dels || []).reduce(function (s, c) { return s + (c.b - c.a); }, 0);
+      var secs = t.visible !== false && A.byTrack[t.id], np = secs ? secs.filter(function (x) { return x.kind === 'part'; }).length : 0;
       return '<li data-track="' + t.id + '" class="' + (t.visible === false ? 'off' : '') + '">' +
         '<span class="sw" style="background:' + trackColor(t) + '"></span>' +
         '<span class="t" title="' + U.esc(t.title || t.name) + '">' + U.esc(t.name) + (t.walk ? ' <small>' + TE('tr.walk') + '</small>' : '') +
-        (cutL ? ' <small>· ' + TE('tr.cut', { len: U.km(cutL) }) + '</small>' : '') + '</span>' +
-        '<span class="v">' + U.km(t.len) +
+        (secs ? ' <small class="tr-parts">· ' + U.esc(T.n('tr.parts', np)) + '</small>' : '') +
+        (cutL ? ' <small>· ' + TE('tr.cut', { len: U.km(cutL) }) + '</small>' : '') +
+        (delL ? ' <small>· ' + TE('tr.dels', { len: U.km(delL) }) + '</small>' : '') + '</span>' +
+        '<span class="v">' + U.km(t.len - delL) +
         ' <label class="chk" title="' + TE('tr.vis') + '"><input type="checkbox" data-tr="vis" ' + (t.visible === false ? '' : 'checked') + '></label>' +
         '<button class="btn sm" data-tr="fit" title="' + TE('tr.fit.title') + '">' + TE('tr.fit') + '</button>' +
         '<button class="btn sm" data-tr="gpx" title="' + TE('tr.gpx') + '">.gpx</button>' +
@@ -1613,6 +1799,7 @@
       } else if (anyErr && !$('#dlgImport').open) {
         openImport();
       }
+      if (added.length || loadedCollection) askRings();
     });
   }
   function importCollection(data) {
@@ -2562,6 +2749,8 @@
     $$('.tolVal').forEach(function (b) { b.textContent = S.tol + ' ' + T('unit.m'); });
     $('#searchResults').hidden = true;
     $('#tip').hidden = true;
+    hideObjMenu();
+    if ($('#dlgRings').open) { var ck = $$('#ringsList input[data-ri]').map(function (c) { return c.checked; }); openRings(); $$('#ringsList input[data-ri]').forEach(function (c, i) { if (i < ck.length) c.checked = ck[i]; }); }
     lastElevKey = null;
     routeChanged(true);
     drawProfile();
@@ -2784,12 +2973,7 @@
       var act = b ? b.dataset.tr : null;
       if (act === 'fit') { fitTo([t.pts]); window.scrollTo({ top: 0, behavior: 'smooth' }); }
       else if (act === 'gpx') exportTrack(t);
-      else if (act === 'del') {
-        var usedIn = S.routes.filter(function (r) { return r.items.some(function (it) { return it.trackId === t.id; }); }).length;
-        if (!confirm(T('confirm.delTrack', { name: t.name }) + (usedIn ? ' ' + T('confirm.usedIn', { n: usedIn }) : ''))) return;
-        S.tracks = S.tracks.filter(function (x) { return x.id !== t.id; });
-        analyzeNow(); saveNow();
-      }
+      else if (act === 'del') deleteTrack(t);
     });
     tl.addEventListener('change', function (e) {
       if (e.target.dataset.tr !== 'vis') return;
@@ -2842,9 +3026,24 @@
     });
     $('#picForm').addEventListener('change', updatePicEst);
 
+    // Меню на разклонение / участък и списъкът с излишните пръстени.
+    $('#objMenu').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-om]'); if (!b) return;
+      var btn = ui.omBtns && ui.omBtns[+b.dataset.om];
+      hideObjMenu();
+      if (btn) btn.run();
+    });
+    document.addEventListener('pointerdown', function (e) {
+      if (ui.om && !$('#objMenu').contains(e.target) && !$('#map').contains(e.target)) hideObjMenu();
+    }, true);
+    $('#ringsDrop').addEventListener('click', function () { ringsDone(true); });
+    $('#ringsKeep').addEventListener('click', function () { ringsDone(false); });
+    $('#dlgRings').addEventListener('cancel', function (e) { e.preventDefault(); }); // затваря се само с копче
+    $('#ringsOpen').addEventListener('click', openRings);
+
     document.addEventListener('keydown', function (e) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); undo(); }
-      if (e.key === 'Escape') { hidePointMenu(); if (ui.cut) cutBack(); }
+      if (e.key === 'Escape') { hidePointMenu(); hideObjMenu(); if (ui.cut) cutBack(); }
     });
     window.addEventListener('resize', U.debounce(function () { drawProfile(); if (!$('#picView').hidden) picFit(); }, 150));
   }
@@ -2892,8 +3091,8 @@
       dblZoom: function () { return ui.mode === 'select' && !ui.hover; }
     });
     map.addDrawer(drawMap);
-    map.on('viewchange', function (v) { U.LS.set('view', v); if (!$('#pointMenu').hidden) hidePointMenu(); });
-    map.on('usermove', function () { if (ui.follower) ui.autoCenter = false; $('#tip').hidden = true; });
+    map.on('viewchange', function (v) { U.LS.set('view', v); if (!$('#pointMenu').hidden) hidePointMenu(); if (ui.om && JSON.stringify(v) !== ui.omView) hideObjMenu(); });
+    map.on('usermove', function () { if (ui.follower) ui.autoCenter = false; $('#tip').hidden = true; hideObjMenu(); });
     map.on('rotate', showCompass);
     // Височината на горната лента - при следене контролите горе вдясно стоят под нея.
     var barEl = $('#bar'), barH = function () { document.documentElement.style.setProperty('--bar-h', Math.round(barEl.getBoundingClientRect().height) + 'px'); };
@@ -2935,6 +3134,7 @@
       $$('.tolVal').forEach(function (b) { b.textContent = S.tol + ' ' + T('unit.m'); });
       cur();
       analyzeNow();
+      askRings();
       loadPic();
       if (!view && S.tracks.length) fitRoute();
       return U.DB.get('lastWalk').then(function (w) {
