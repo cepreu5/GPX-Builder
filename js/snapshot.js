@@ -156,21 +156,20 @@
     return chain.then(function () {
       var b = report.base;
       if (!b || b.total === 0 || b.failed / b.total > 0.3) {
-        throw new Error('Услугата за плочки (' + opts.base.name + ') отказа ' + (b ? b.failed + ' от ' + b.total : 'всички') +
-          ' плочки. Картината не е направена, за да не излезе празна. Опитай пак след малко или избери друга основа.');
+        throw new Error(T('snap.refused', { name: opts.base.name, n: b ? T('pic.of', { a: b.failed, b: b.total }) : T('snap.all') }));
       }
       drawRoute(ctx, p, opts);
       var warn = null;
-      if (b.failed) warn = b.failed + ' плочки от основата липсват.';
-      report.labels.forEach(function (r) { if (r.failed / (r.total || 1) > 0.3) warn = 'Слоят с надписи не отговори - картината е без част от имената.'; });
+      if (b.failed) warn = T('snap.missing', { n: b.failed });
+      report.labels.forEach(function (r) { if (r.failed / (r.total || 1) > 0.3) warn = T('snap.noLabels'); });
       return new Promise(function (resolve, reject) {
         try {
           cv.toBlob(function (blob) {
-            if (!blob) return reject(new Error('Браузърът не успя да запише картината.'));
+            if (!blob) return reject(new Error(T('snap.blob')));
             resolve({ blob: blob, meta: { z: p.z, x0: p.x0, y0: p.y0, w: p.w, h: p.h }, warn: warn });
           }, 'image/png');
         } catch (e) {
-          reject(new Error('Услугата за плочки не позволи сглобяване на картина в браузъра (липсва разрешение CORS).'));
+          reject(new Error(T('snap.cors')));
         }
       });
     });
@@ -265,8 +264,8 @@
     if (all.length > 1) {
       var st = all[0], en = all[all.length - 1];
       var same = Math.hypot(st[0] - en[0], st[1] - en[1]) < 14 * s;
-      marker(ctx, en, s, '#b3372b', same ? null : 'Край');
-      marker(ctx, st, s, '#1f8a4c', same ? 'Старт / край' : 'Старт');
+      marker(ctx, en, s, '#b3372b', same ? null : T('map.end'));
+      marker(ctx, st, s, '#1f8a4c', same ? T('map.startEnd') : T('map.start'));
     }
 
     var mpp = 40075016.686 * Math.cos(M.y2lat((p.y0 + p.h / 2) / W) * Math.PI / 180) / W;
@@ -281,7 +280,7 @@
     ctx.font = '600 ' + Math.round(12 * s) + 'px ' + MONO; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     ctx.fillText('0', sx, sy - 13 * s);
     ctx.textAlign = 'right';
-    ctx.fillText(sm >= 1000 ? U.num(sm / 1000) + ' км' : U.num(sm) + ' м', sx + spx + 36 * s, sy - 1 * s);
+    ctx.fillText(sm >= 1000 ? U.num(sm / 1000) + ' ' + T('unit.km') : U.num(sm) + ' ' + T('unit.m'), sx + spx + 36 * s, sy - 1 * s);
 
     // Източник на плочките.
     ctx.font = Math.round(10 * s) + 'px ' + FONT; ctx.textAlign = 'right';
@@ -294,8 +293,8 @@
     // Числа и легенда.
     var lines = [
       { t: route.name, f: '700 ' + Math.round(15 * s) + 'px ' + FONT },
-      { t: U.km(route.len) + (route.up != null ? ' · ' + U.num(Math.round(route.up)) + ' м изкачване' : ''), f: '600 ' + Math.round(13 * s) + 'px ' + MONO },
-      { t: (route.maxGrade != null ? 'наклон до ' + U.pct(route.maxGrade) + ' · ' : '') + U.date(opts.date || Date.now()), f: Math.round(12.5 * s) + 'px ' + MONO }
+      { t: U.km(route.len) + (route.up != null ? ' · ' + T('snap.up', { m: U.num(Math.round(route.up)) }) : ''), f: '600 ' + Math.round(13 * s) + 'px ' + MONO },
+      { t: (route.maxGrade != null ? T('snap.grade', { p: U.pct(route.maxGrade) }) + ' · ' : '') + U.date(opts.date || Date.now()), f: Math.round(12.5 * s) + 'px ' + MONO }
     ];
     var legend = route.parts.filter(function (x) { return !x.drawn && x.pts.length > 1; });
     var shown = legend.slice(0, 7);
@@ -320,11 +319,11 @@
       ctx.fillStyle = k % 2 ? col.b : col.a; ctx.fillRect(bx + 12 * s, y - 8 * s, 20 * s, 6 * s);
       ctx.fillStyle = '#1f1d1a'; ctx.fillText(x.label, bx + 40 * s, y - 1 * s, bw - 52 * s);
     });
-    if (legend.length > shown.length) { y += 17 * s; ctx.fillStyle = '#6b665e'; ctx.fillText('и още ' + (legend.length - shown.length) + ' части', bx + 40 * s, y - 1 * s); }
+    if (legend.length > shown.length) { y += 17 * s; ctx.fillStyle = '#6b665e'; ctx.fillText(T('snap.more', { n: legend.length - shown.length }), bx + 40 * s, y - 1 * s); }
     y += 17 * s;
     ctx.beginPath(); ctx.arc(bx + 17 * s, y - 5 * s, 5 * s, 0, Math.PI * 2); ctx.fillStyle = '#1f8a4c'; ctx.fill();
     ctx.beginPath(); ctx.arc(bx + 29 * s, y - 5 * s, 5 * s, 0, Math.PI * 2); ctx.fillStyle = '#b3372b'; ctx.fill();
-    ctx.fillStyle = '#1f1d1a'; ctx.fillText('начало / край', bx + 40 * s, y - 1 * s);
+    ctx.fillStyle = '#1f1d1a'; ctx.fillText(T('snap.startEnd'), bx + 40 * s, y - 1 * s);
   }
 
   function marker(ctx, q, s, color, text) {

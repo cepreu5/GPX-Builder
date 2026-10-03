@@ -31,11 +31,11 @@
     start: function () {
       var self = this;
       if (!('geolocation' in navigator)) {
-        this.cb.error('Този браузър не дава местоположение. Следенето не може да тръгне.');
+        this.cb.error(T('geo.none'));
         return false;
       }
       if (window.isSecureContext === false) {
-        this.cb.error('Следенето иска защитена връзка (https). Отвори приложението от адреса в GitHub Pages.');
+        this.cb.error(T('geo.https'));
         return false;
       }
       this.rec = [];
@@ -46,7 +46,7 @@
       try {
         this.listen();
       } catch (e) {
-        this.cb.error('Местоположението не е налично: ' + e.message);
+        this.cb.error(T('geo.errMsg', { e: e.message }));
         return false;
       }
       document.addEventListener('visibilitychange', this.onVis);
@@ -81,9 +81,9 @@
         // при връщане на екрана GPS-ът се пуска наново.
         if (document.visibilityState === 'hidden' || (self.waiting && err.code !== 1)) return;
         var msg = err.code === 1
-          ? 'Нямаш разрешение за местоположение. Разреши го от настройките на браузъра за този сайт и натисни "Следене" пак.'
-          : err.code === 3 ? 'GPS не отговаря. Излез на открито и изчакай малко.'
-            : 'Местоположението не е налично в момента.';
+          ? T('geo.denied')
+          : err.code === 3 ? T('geo.timeout')
+            : T('geo.unavail');
         self.cb.error(msg, err.code);
       }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 30000 });
     },
@@ -160,7 +160,7 @@
       if (!pos) return null;
       var w = { lat: Math.round(pos.lat * 1e6) / 1e6, lon: Math.round(pos.lon * 1e6) / 1e6,
         ele: pos.alt != null && isFinite(pos.alt) ? Math.round(pos.alt) : null, time: pos.t || Date.now(),
-        name: String(name || '').trim() || 'Точка ' + (this.wpts.length + 1) };
+        name: String(name || '').trim() || T('wpt.def', { n: this.wpts.length + 1 }) };
       this.wpts.push(w);
       return w;
     },

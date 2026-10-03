@@ -4,36 +4,49 @@
 
   var R = 6371008.8;
   var RAD = Math.PI / 180;
-  var MONTHS = ['яну', 'фев', 'мар', 'апр', 'май', 'юни', 'юли', 'авг', 'сеп', 'окт', 'ное', 'дек'];
+  // Надписите идват от речника (js/i18n.js); без него (проверките в node) - българските.
+  var BG = {
+    'unit.km': 'км', 'unit.m': 'м', 'unit.h': 'ч',
+    'months.short': 'яну,фев,мар,апр,май,юни,юли,авг,сеп,окт,ное,дек',
+    'dirs': 'север,североизток,изток,югоизток,юг,югозапад,запад,северозапад'
+  };
+  function tr(k) { return window.I18N ? window.I18N.t(k) : BG[k]; }
+  // Списък от речника, разделен със запетаи; ако преводът го е объркал (друг брой) - българският.
+  function list(k, n) {
+    var a = String(tr(k) || '').split(/\s*[,،、]\s*/);
+    if (a.length !== n) a = (window.I18N && window.I18N.all[k] ? window.I18N.all[k][0] : BG[k]).split(',');
+    return a;
+  }
+  function en() { return !!(window.I18N && window.I18N.lang === 'en'); }
 
-  // Групиране с интервал за хиляди, запетая за десетична (български формат).
+  // Групиране с интервал за хиляди, запетая за десетична (български формат); на английски - запетая и точка.
   function num(v, dec) {
     if (v == null || !isFinite(v)) return '-';
     dec = dec || 0;
     var neg = v < 0;
     var s = Math.abs(v).toFixed(dec);
     var parts = s.split('.');
-    var int = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-    return (neg ? '-' : '') + int + (parts[1] ? ',' + parts[1] : '');
+    var int = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, en() ? ',' : ' ');
+    return (neg ? '-' : '') + int + (parts[1] ? (en() ? '.' : ',') + parts[1] : '');
   }
   function km(m, dec) {
     if (m == null || !isFinite(m)) return '-';
-    return num(m / 1000, dec == null ? 1 : dec) + ' км';
+    return num(m / 1000, dec == null ? 1 : dec) + ' ' + tr('unit.km');
   }
   function kmShort(m) { // "км 3,4" стил, без единица
     var v = m / 1000;
     return v < 0.05 ? '0' : num(v, 1);
   }
-  function meters(m) { return num(Math.round(m)) + ' м'; }
+  function meters(m) { return num(Math.round(m)) + ' ' + tr('unit.m'); }
   function dist(m) { return m < 1000 ? meters(m) : km(m, m < 10000 ? 2 : 1); }
   function pct(v, dec) { return num(v, dec == null ? 1 : dec) + ' %'; }
   function date(t) {
     var d = new Date(t);
-    return d.getDate() + ' ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+    return d.getDate() + ' ' + list('months.short', 12)[d.getMonth()] + ' ' + d.getFullYear();
   }
   function dateShort(t) {
     var d = new Date(t);
-    return d.getDate() + ' ' + MONTHS[d.getMonth()];
+    return d.getDate() + ' ' + list('months.short', 12)[d.getMonth()];
   }
   function dateDots(t) {
     var d = new Date(t);
@@ -42,7 +55,7 @@
   function pad(n) { return n < 10 ? '0' + n : '' + n; }
   function duration(ms) {
     var m = Math.floor(ms / 60000);
-    return Math.floor(m / 60) + ':' + pad(m % 60) + ' ч';
+    return Math.floor(m / 60) + ':' + pad(m % 60) + ' ' + tr('unit.h');
   }
 
   // Разстояние по голямата окръжност (хаверсинус), в метри.
@@ -58,8 +71,7 @@
       Math.sin(lat1 * RAD) * Math.cos(lat2 * RAD) * Math.cos((lon2 - lon1) * RAD);
     return (Math.atan2(y, x) / RAD + 360) % 360;
   }
-  var DIRS = ['север', 'североизток', 'изток', 'югоизток', 'юг', 'югозапад', 'запад', 'северозапад'];
-  function dirName(b) { return DIRS[Math.round(b / 45) % 8]; }
+  function dirName(b) { return list('dirs', 8)[Math.round(b / 45) % 8]; }
 
   // Натрупано разстояние по поредица точки [[lat,lon,...]].
   function cumulative(pts) {
@@ -191,6 +203,6 @@
     date: date, dateShort: dateShort, dateDots: dateDots, duration: duration,
     hav: hav, bearing: bearing, dirName: dirName, cumulative: cumulative, lengthOf: lengthOf,
     boundsOf: boundsOf, projectSeg: projectSeg, uid: uid, esc: esc, debounce: debounce,
-    slug: slug, download: download, cssVar: cssVar, DB: DB, LS: LS, RAD: RAD
+    slug: slug, download: download, cssVar: cssVar, DB: DB, LS: LS, RAD: RAD, list: list
   };
 })();

@@ -30,7 +30,7 @@
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'map-canvas';
     this.canvas.setAttribute('tabindex', '0');
-    this.canvas.setAttribute('aria-label', 'Карта');
+    this.canvas.setAttribute('aria-label', T('map.aria'));
     el.appendChild(this.canvas);
     this.ctx = this.canvas.getContext('2d');
     this.cx = lon2x(24.7036);

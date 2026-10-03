@@ -56,14 +56,14 @@
     var la = batch.map(function (p) { return p.lat.toFixed(5); }).join(',');
     var lo = batch.map(function (p) { return p.lon.toFixed(5); }).join(',');
     return fetchJson('https://api.open-meteo.com/v1/elevation?latitude=' + la + '&longitude=' + lo).then(function (j) {
-      if (!j || !Array.isArray(j.elevation) || j.elevation.length !== batch.length) throw new Error('лош отговор');
+      if (!j || !Array.isArray(j.elevation) || j.elevation.length !== batch.length) throw new Error(T('elev.bad'));
       return j.elevation;
     });
   }
   function openTopo(batch) {
     var loc = batch.map(function (p) { return p.lat.toFixed(5) + ',' + p.lon.toFixed(5); }).join('|');
     return fetchJson('https://api.opentopodata.org/v1/srtm30m?locations=' + encodeURIComponent(loc)).then(function (j) {
-      if (!j || !Array.isArray(j.results)) throw new Error('лош отговор');
+      if (!j || !Array.isArray(j.results)) throw new Error(T('elev.bad'));
       return j.results.map(function (r) { return r.elevation; });
     });
   }
@@ -89,7 +89,7 @@
           var first = source === 'Open-Meteo' ? openMeteo(b) : openTopo(b);
           return first.catch(function () {
             if (source === 'Open-Meteo') { source = 'OpenTopoData'; return wait(bi ? 1100 : 0).then(function () { return openTopo(b); }); }
-            throw new Error('няма отговор');
+            throw new Error(T('elev.noAnswer'));
           }).then(function (els) {
             b.forEach(function (s, ii) { if (els[ii] != null && isFinite(els[ii])) cache.set(k(s.lat, s.lon), els[ii]); });
             done += b.length;

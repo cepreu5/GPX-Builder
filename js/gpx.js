@@ -26,14 +26,14 @@
 
   // Връща {tracks:[{name, pts, breaks, wpts}]} или хвърля Error с ясно съобщение.
   function parse(text, fileName) {
-    var bad = new Error('Този файл не изглежда като GPX. Пробвай .gpx файл от друго приложение.');
+    var bad = new Error(T('gpx.bad'));
     if (typeof text !== 'string' || text.indexOf('<') < 0) throw bad;
     var doc;
     try { doc = new DOMParser().parseFromString(text, 'application/xml'); } catch (e) { throw bad; }
     if (!doc || doc.getElementsByTagName('parsererror').length || !doc.documentElement ||
       doc.documentElement.localName !== 'gpx') throw bad;
     var root = doc.documentElement;
-    var base = String(fileName || 'трак').replace(/\.gpx$/i, '');
+    var base = String(fileName || T('gpx.track')).replace(/\.gpx$/i, '');
     var metaName = null;
     var md = byLocal(root, 'metadata')[0];
     if (md) metaName = childText(md, 'name');
@@ -60,7 +60,7 @@
       if (pts.length >= 2) out.push({ name: childText(rte, 'name'), pts: pts, breaks: [] });
     });
     if (!out.length) {
-      if (wpts.length) throw new Error('Във файла има само точки, без трак. Нужен е трак или маршрут.');
+      if (wpts.length) throw new Error(T('gpx.onlyWpts'));
       throw bad;
     }
     out.forEach(function (t, i) {
@@ -81,7 +81,7 @@
 
   // Един трак с една непрекъсната линия плюс точки с име като waypoints.
   function build(opts) {
-    var name = opts.name || 'Маршрут';
+    var name = opts.name || T('route.def');
     var now = new Date().toISOString();
     var lines = [];
     lines.push('<?xml version="1.0" encoding="UTF-8"?>');

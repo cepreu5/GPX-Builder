@@ -449,6 +449,20 @@ td .num, td.num { font-family: var(--app-mono); }
 .save-smooth .name-lbl { display: block; margin-bottom: 4px; }
 #dlgWalk .row.end { flex-wrap: wrap; gap: 6px; }
 
+/* Езикът: копчето с глобуса в лентата и прозорецът "Език" */
+#bar .lang-btn { flex-shrink: 0; padding: 4px 8px; gap: 5px; font-size: 12.5px; font-weight: 600; letter-spacing: .02em; }
+.lang-btn .ico-svg { width: 17px; height: 17px; }
+.lang-opts { margin-bottom: 6px; }
+.lang-opts .smooth-opt:last-child { border-bottom: 1px solid var(--app-line); }
+#dlgLang > form > p { margin: 8px 0 12px; }
+.lang-tr { border: 1px solid var(--app-line); border-radius: var(--app-radius-sm); padding: 8px 12px 10px; margin: 0 0 12px; }
+.lang-tr legend { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--app-muted); padding: 0 4px; }
+.lang-tr select { width: 100%; font: inherit; font-size: 14px; color: var(--app-ink); background: var(--app-surface); border: 1px solid var(--app-line-strong); border-radius: var(--app-radius-sm); padding: 6px 8px; min-height: 34px; }
+.lang-tr p { margin: 8px 0 0; }
+.lang-tr-msg:empty { display: none; }
+.lang-tr-msg.warn { color: var(--app-warn); }
+.lang-tr.off select, .lang-tr.off legend, .lang-tr.off #langTrAbout { opacity: .5; }
+
 /* Диалози */
 .dlg {
   border: 0; border-radius: 8px; padding: 18px; width: min(560px, calc(100% - 24px));
