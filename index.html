@@ -46,7 +46,7 @@
     <button class="btn wide-only" data-act="export-gpx" data-i18n="act.exportGpx">Изнеси .gpx</button>
     <button class="btn" data-act="save" data-i18n="act.save" data-i18n-title="bar.save.title" title="Свали .gpx и запиши маршрута в „Записани маршрути“">Запази</button>
     <label class="chk bar-chk" id="labelsChk" data-i18n-title="bar.labels.title" title="Имената и номерата на пътищата върху сателитните снимки"><input type="checkbox" id="labelsToggle" checked> <span data-i18n="bar.labels">Имена</span></label>
-    <button class="btn lang-btn" type="button" data-act="lang" id="langBtn" data-i18n-title="lang.btn.title" data-i18n-aria="lang.btn.aria" title="Език на интерфейса" aria-label="Език на интерфейса" aria-haspopup="dialog"><svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.6 3.8 5.6 3.8 9s-1.2 6.4-3.8 9c-2.6-2.6-3.8-5.6-3.8-9S9.4 5.6 12 3z"/></svg><span id="langCode">БГ</span></button>
+    <button class="btn lang-btn" type="button" data-act="lang" id="langBtn" data-i18n-title="lang.btn.title" data-i18n-aria="lang.btn.aria" title="Език на интерфейса" aria-label="Език на интерфейса" aria-haspopup="dialog"><svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.6 3.8 5.6 3.8 9s-1.2 6.4-3.8 9c-2.6-2.6-3.8-5.6-3.8-9S9.4 5.6 12 3z"/></svg><span id="langCode" data-i18n="lang.code">БГ</span></button>
   </div>
   <div class="bar-row tools" id="tools">
     <div class="seg" role="group" data-i18n-aria="mode.aria" aria-label="Режим">
@@ -106,7 +106,7 @@
   </div>
   <div id="attrib" class="attrib"></div>
   <div id="walkBar" class="walkbar" role="region" data-i18n-aria="walkbar.aria" aria-label="Изминатото" hidden>
-    <span class="wb-t"><span data-i18n="walkbar.stopped">Следенето спря: </span><b id="walkBarName">изминат</b></span>
+    <span class="wb-t"><span data-i18n="walkbar.stopped">Следенето спря: </span><b id="walkBarName" data-i18n="walk.def">изминат</b></span>
     <button class="btn sm pri" data-act="walk-gpx-done" id="walkBarBtn" data-i18n="walkbar.dl">Свали изминалото като .gpx</button>
     <button class="btn sm ico" data-act="walkbar-close" data-i18n-aria="walkbar.close" data-i18n-title="act.close" aria-label="Затвори реда за сваляне" title="Затвори">&times;</button>
   </div>
@@ -153,7 +153,7 @@
       <div><small data-i18n="fs.left">Остават</small><b class="num" id="fLeft">-</b></div>
       <div><small data-i18n="fs.off">Встрани</small><b class="num" id="fOff">-</b></div>
     </div>
-    <p id="fMsg" class="follow-msg">Чакам сигнал от GPS...</p>
+    <p id="fMsg" class="follow-msg" data-i18n="follow.waiting">Чакам сигнал от GPS...</p>
     <p id="fAwake" class="follow-msg muted" hidden></p>
     <div id="walkDone" class="row follow-done" hidden>
       <button class="btn pri" data-act="walk-gpx-done" data-i18n="walk.dl">Свали изминатото като .gpx</button>
@@ -163,13 +163,13 @@
 
   <section class="card summary">
     <div class="stats" id="stats">
-      <div><small data-i18n="st.len">Дължина</small><b class="num" id="sLen">0 км</b></div>
+      <div><small data-i18n="st.len">Дължина</small><b class="num" id="sLen">-</b></div>
       <div><small data-i18n="st.up">Изкачване</small><b class="num" id="sUp">-</b></div>
       <div><small data-i18n="st.down">Спускане</small><b class="num" id="sDown">-</b></div>
       <div><small data-i18n="st.grade">Наклон до</small><b class="num" id="sGrade">-</b></div>
       <div><small data-i18n="st.parts">Части</small><b class="num" id="sParts">0</b></div>
       <div><small data-i18n="st.pts">Точки</small><b class="num" id="sPts">0</b></div>
-      <div><small data-i18n="st.skip">Пропуснати</small><b class="num" id="sSkip">0 км</b></div>
+      <div><small data-i18n="st.skip">Пропуснати</small><b class="num" id="sSkip">-</b></div>
     </div>
     <div class="profile-head">
       <span class="lbl" data-i18n="prof.t">Профил</span>
@@ -221,10 +221,10 @@
       <section class="card fold" id="dupsCard" data-fold="dups">
         <h2><button type="button" class="fold-t" aria-expanded="false" aria-controls="dupsFoldBody"><span class="chev" aria-hidden="true">&#9656;</span><span data-i18n="dups.h">Дубликати</span> <span class="num muted" id="dupsCount">(0)</span></button></h2>
         <div class="fold-b" id="dupsFoldBody" hidden>
-        <p class="dups-sum small" id="dupsPending" hidden>Дубликати по картата: 0 маркера · 0 км</p>
+        <p class="dups-sum small" id="dupsPending" hidden></p>
         <p class="muted small" id="dupsPendingNote" data-i18n="dups.pendNote" hidden>Нищо още не е махнато - числата ги броят, а на картата стоят и двете линии. Всеки маркер се решава сам.</p>
-        <p class="dups-sum small" id="dupsSkipped">Пропуснати дубликати: 0 участъка · 0 км</p>
-        <p class="muted small"><span data-i18n="dups.note1">Участък, който минава по-близо от </span><b class="tolVal">20 м</b><span data-i18n="dups.note2"> до вече приетото трасе, получава маркер × по средата си. Клик върху маркера го маха от маршрута и от картата; "Отмени" го връща. Дупка, по-къса от отклонението, се затваря сама. Отклонението се сменя с полето "Отклонение" в лентата.</span></p>
+        <p class="dups-sum small" id="dupsSkipped"></p>
+        <p class="muted small"><span data-i18n="dups.note1">Участък, който минава по-близо от </span><b class="tolVal"></b><span data-i18n="dups.note2"> до вече приетото трасе, получава маркер × по средата си. Клик върху маркера го маха от маршрута и от картата; "Отмени" го връща. Дупка, по-къса от отклонението, се затваря сама. Отклонението се сменя с полето "Отклонение" в лентата.</span></p>
         </div>
       </section>
       <section class="card fold" id="cutsCard" data-fold="cuts">
@@ -239,7 +239,7 @@
 
   <section class="card" id="picCard">
     <h2 data-i18n="piccard.h">Запазена картина</h2>
-    <div id="picInfo" class="muted small">Още няма картина за този маршрут. Копчето "Картина" я прави и я пази заедно с обхвата ѝ.</div>
+    <div id="picInfo" class="muted small" data-i18n="pic.none">Още няма картина за този маршрут. Копчето "Картина" я прави и я пази заедно с обхвата ѝ.</div>
     <div class="row">
       <button class="btn sm" data-act="picture" data-i18n="piccard.make">Направи картина</button>
       <button class="btn sm" data-act="pic-open" id="picOpenBtn" disabled data-i18n="piccard.open">Покажи върху картината</button>
@@ -269,7 +269,7 @@
     <p data-i18n="foot.data">Данните живеят само в този браузър. За друго устройство изнеси колекцията и я зареди там.</p>
     <p data-i18n="foot.src">Плочки: Esri World Imagery и Esri Reference, OpenTopoMap. Търсене: Nominatim (OpenStreetMap). Височини: Open-Meteo, резерва OpenTopoData.</p>
     <p class="ver"><span data-i18n="foot.ver">Версия </span><span class="num" id="appVersion"></span><span id="appDate"></span></p>
-    <p><button class="btn sm" data-act="theme" id="themeBtn">Тъмна тема</button></p>
+    <p><button class="btn sm" data-act="theme" id="themeBtn" data-i18n="theme.dark">Тъмна тема</button></p>
   </footer>
 </main>
 

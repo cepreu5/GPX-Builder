@@ -1088,7 +1088,7 @@ function barFits() {
   const ver = (verText.match(/^\d+\.\d+\.\d+/) || [''])[0];
   check(ver === '1.2.0' && await p5.isVisible('#appVersion') && /^Версия 1\.2\.0 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
   const swCache = (() => { const ctx = { importScripts: f => vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx), addEventListener: () => {} }; ctx.self = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8') + ';this.__c = CACHE;', ctx); return ctx.__c; })();
-  check(swCache === 'gpxk-v26-1.2.0' && swCache === 'gpxk-v26-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
+  check(swCache === 'gpxk-v27-1.2.0' && swCache === 'gpxk-v27-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
   const liveCaches = await p5.evaluate(() => navigator.serviceWorker.ready.then(() => new Promise(r => { const t0 = Date.now(); (function poll() { caches.keys().then(k => (k.length || Date.now() - t0 > 8000) ? r(k) : setTimeout(poll, 100)); })(); })));
   check(liveCaches.length === 1 && liveCaches[0] === swCache, 'в браузъра работникът е създал кеш ' + JSON.stringify(liveCaches));
   // Бутоните са неактивни, когато няма какво да изчистят.
@@ -1988,23 +1988,44 @@ function barFits() {
   {
     const watch = pg => { const errs = []; pg.on('pageerror', e => errs.push('pageerror: ' + e.message)); pg.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text()) && !/api\.opentopodata\.org/.test(m.text())) errs.push('console: ' + m.text()); }); return errs; };
     const ready = pg => pg.waitForFunction(() => window.__gpxk && window.__gpxk.ready, null, { timeout: 15000 });
-    // Кирилица по екрана: видимите текстове, подсказките (title, aria-label, placeholder, alt), стойностите
-    // на полетата и целият текст в прозорците. Без данните на потребителя (имена на тракове, маршрути, точки).
+    // Кирилица в целия документ, без филтър по видимост: всеки текстов възел (и в затворените прозорци,
+    // скритите панели и редове), подсказките (title, aria-label, placeholder, alt, content), стойностите
+    // на полетата. Скрит низ излиза на екрана по-късно - затова се гледа всичко.
+    // Без данните на потребителя (имена на тракове, маршрути, точки).
     function cyrScan() {
       const cyr = /[Ѐ-ӿ]/, bad = [], g = window.__gpxk;
       const mine = [].concat(...g.S.tracks.map(t => [t.name, t.title].concat((t.wpts || []).map(w => w.name))), g.S.routes.map(r => r.name)).filter(Boolean);
       const own = v => mine.some(n => v.includes(n));
-      const shown = e => !e.closest('[hidden]') && !e.closest('dialog:not([open])') && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden' && e.getBoundingClientRect().width > 0;
-      const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      const where = e => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '');
+      const w = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT);
       while (w.nextNode()) {
         const n = w.currentNode, e = n.parentElement, t = n.data.trim();
-        if (!t || !cyr.test(t) || e.closest('script') || own(t)) continue;
-        if (shown(e) || e.closest('dialog')) bad.push(t.slice(0, 60));
+        if (!t || !cyr.test(t) || e.closest('script, style') || own(t)) continue;
+        bad.push(where(e) + ': ' + t.slice(0, 60));
       }
-      document.querySelectorAll('[title],[aria-label],[placeholder],[alt]').forEach(e => ['title', 'aria-label', 'placeholder', 'alt'].forEach(a => { const v = e.getAttribute(a); if (v && cyr.test(v) && !own(v)) bad.push(a + ': ' + v.slice(0, 60)); }));
-      document.querySelectorAll('input[type="text"], input[type="search"]').forEach(i => { if (cyr.test(i.value) && !own(i.value)) bad.push('value: ' + i.value); });
-      if (cyr.test(document.title)) bad.push('document.title');
+      document.querySelectorAll('[title],[aria-label],[placeholder],[alt],meta[content]').forEach(e => ['title', 'aria-label', 'placeholder', 'alt', 'content'].forEach(a => { const v = e.getAttribute(a); if (v && cyr.test(v) && !own(v)) bad.push(where(e) + ' ' + a + ': ' + v.slice(0, 60)); }));
+      document.querySelectorAll('input, textarea').forEach(i => { if (cyr.test(i.value) && !own(i.value)) bad.push(where(i) + ' value: ' + i.value); });
       return bad;
+    }
+
+    // Източникът: всеки елемент в index.html с текст на кирилица има data-i18n, а всяка подсказка
+    // на кирилица - своето data-i18n-title / -aria / -placeholder / -alt / -content. Иначе българският
+    // низ стои в страницата, докато кодът не го презапише (или завинаги, ако не го пипа).
+    {
+      const ps = await browser.newPage();
+      const holes = await ps.evaluate(h => {
+        const d = new DOMParser().parseFromString(h, 'text/html'), cyr = /[Ѐ-ӿ]/, bad = [];
+        const where = e => e.tagName.toLowerCase() + (e.id ? '#' + e.id : e.className ? '.' + String(e.className).split(' ')[0] : '');
+        const w = d.createTreeWalker(d.documentElement, NodeFilter.SHOW_TEXT);
+        while (w.nextNode()) { const n = w.currentNode, e = n.parentElement; if (cyr.test(n.data) && !e.closest('script, style') && !e.hasAttribute('data-i18n')) bad.push(where(e) + ': ' + n.data.trim().slice(0, 50)); }
+        const A = { title: 'title', 'aria-label': 'aria', placeholder: 'placeholder', alt: 'alt', content: 'content' };
+        d.querySelectorAll('*').forEach(e => Object.keys(A).forEach(a => { const v = e.getAttribute(a); if (v && cyr.test(v) && !e.hasAttribute('data-i18n-' + A[a])) bad.push(where(e) + ' ' + a + ': ' + v.slice(0, 50)); }));
+        // data-i18n сменя целия текст на елемента - вътре не бива да има други елементи.
+        d.querySelectorAll('[data-i18n]').forEach(e => { if (e.children.length) bad.push(where(e) + ': data-i18n с вложени елементи'); });
+        return bad;
+      }, fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'));
+      check(!holes.length, '1.2.0: в index.html всеки текст и подсказка на кирилица е с data-i18n' + (holes.length ? ': ' + holes.join(' | ') : ''));
+      await ps.close();
     }
 
     // Огледалото на речника: всеки ключ има bg и en, в английските няма кирилица, заместителите съвпадат.
@@ -2032,7 +2053,8 @@ function barFits() {
     await cm.close();
 
     // Браузър на английски, без избор: целият интерфейс е на английски, на екрана няма кирилица.
-    const ce = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 800 }, acceptDownloads: true });
+    const ce = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 800 }, acceptDownloads: true, permissions: ['geolocation'], geolocation: { latitude: 42.5021, longitude: 24.6985 } });
+    await ce.addInitScript({ content: 'window.inView = ' + inView.toString() });
     const pe = await ce.newPage(); const ee = watch(pe);
     await pe.goto(url); await ready(pe);
     const e0 = await pe.evaluate(() => ({ lang: document.documentElement.lang, code: document.querySelector('#langCode').textContent, save: document.querySelector('#bar [data-act="save"]').textContent, empty: document.querySelector('#empty b').textContent, route: document.querySelector('#routeName').value, pref: localStorage.getItem('gpxk.lang') }));
@@ -2053,6 +2075,8 @@ function barFits() {
     await pe.waitForFunction(() => __gpxk.G && __gpxk.G.count >= 1, null, { timeout: 3000 }).catch(() => {});
     const e1 = await pe.evaluate(() => ({ parts: __gpxk.G.count, toast: document.querySelector('#toast').textContent, len: document.querySelector('#sLen').textContent, stats: [...document.querySelectorAll('#stats small')].map(s => s.textContent) }));
     check(e1.parts >= 1 && /^Part 1 in the route · [\d.]+\skm$/.test(e1.toast) && /\skm$/.test(e1.len) && e1.stats.join() === 'Length,Ascent,Descent,Max grade,Parts,Points,Skipped', '1.2.0, en: клик върху трак слага част 1, съобщението и числата са на английски: ' + JSON.stringify(e1));
+    const scanT = await pe.evaluate(cyrScan);
+    check(!scanT.length, '1.2.0, en: с трак и част в маршрута няма кирилица' + (scanT.length ? ': ' + scanT.slice(0, 10).join(' | ') : ''));
     await pe.evaluate(() => document.querySelector('.actions [data-act="picture"]').click());
     await pe.waitForFunction(() => document.querySelector('#dlgPic').open && /pixels/.test(document.querySelector('#picEst').textContent), null, { timeout: 3000 }).catch(() => {});
     const scan2 = await pe.evaluate(cyrScan);
@@ -2063,6 +2087,21 @@ function barFits() {
     const scan3 = await pe.evaluate(cyrScan);
     check(!scan3.length && /Browser language: English/.test(await pe.textContent('#langAutoSub')), '1.2.0, en: прозорецът „Language“ е на английски („Bulgarian“, не „Български“)' + (scan3.length ? ': ' + scan3.slice(0, 10).join(' | ') : ''));
     await pe.keyboard.press('Escape');
+    // Следене: панелът „Следене“ при пуснато следене, после редът „Следенето спря“ след „Стоп“.
+    await pe.click('#followMapBtn');
+    await pe.waitForFunction(() => __gpxk.ui.follower && __gpxk.ui.pos, null, { timeout: 10000 }).catch(() => {});
+    const fOn = await pe.evaluate(() => ({ on: !!__gpxk.ui.follower, panel: !document.querySelector('#followPanel').hidden && document.querySelector('#followPanel').getBoundingClientRect().height > 0, msg: document.querySelector('#fMsg').textContent }));
+    const scanF = await pe.evaluate(cyrScan);
+    check(fOn.on && fOn.panel && !scanF.length, '1.2.0, en: при пуснато следене с панела „Следене“ на екрана няма кирилица: ' + JSON.stringify(fOn) + (scanF.length ? ': ' + scanF.slice(0, 10).join(' | ') : ''));
+    // Второ положение - изминатото има поне две точки и се пази (иначе редът не излиза).
+    await ce.setGeolocation({ latitude: 42.5040, longitude: 24.7000 });
+    await pe.waitForFunction(() => __gpxk.ui.follower && __gpxk.ui.follower.rec.length >= 2, null, { timeout: 10000 }).catch(() => {});
+    await pe.click('#followMapBtn');
+    await shutWalk(pe);
+    await pe.waitForFunction(() => !document.querySelector('#walkBar').hidden, null, { timeout: 3000 }).catch(() => {});
+    const fOff = await pe.evaluate(() => ({ off: !__gpxk.ui.follower, bar: inView('#walkBarBtn').ok, panel: !document.querySelector('#followPanel').hidden, text: document.querySelector('#walkBar').textContent.replace(/\s+/g, ' ').trim() }));
+    const scanW = await pe.evaluate(cyrScan);
+    check(fOff.off && fOff.bar && fOff.panel && /^Following stopped: /.test(fOff.text) && !scanW.length, '1.2.0, en: след „Стоп“ с реда „Следенето спря“ и панела на екрана няма кирилица: ' + JSON.stringify(fOff) + (scanW.length ? ': ' + scanW.slice(0, 10).join(' | ') : ''));
     check(!ee.length, '1.2.0, en: конзолата е чиста' + (ee.length ? ': ' + ee.join(' | ') : ''));
     await pe.screenshot({ path: path.join(OUT, 'lang-en-1280.png') });
     await ce.close();
