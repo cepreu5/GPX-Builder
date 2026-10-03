@@ -62,13 +62,13 @@
     </form>
   </div>
   <div id="followBar" class="bar-row follow-row" hidden>
-    <b id="followTitle">Следене</b>
+    <b id="followTitle" data-i18n="follow.start">Следене</b>
     <span class="sp"></span>
     <div class="seg" role="group" data-i18n-aria="follow.view.aria" aria-label="Изглед при следене">
       <button data-view="map" class="on" data-i18n="follow.view.map">Карта</button>
       <button data-view="pic" data-i18n="act.picture">Картина</button>
     </div>
-    <button class="btn" data-act="walk-point" id="walkPtBtn" aria-disabled="true" title="Няма сигнал от GPS - точката чака положение" data-i18n="wpt.h">Точка</button>
+    <button class="btn" data-act="walk-point" id="walkPtBtn" aria-disabled="true" data-i18n-title="wpt.btn.no" title="Няма сигнал от GPS - точката чака положение" data-i18n="wpt.h">Точка</button>
     <div class="seg" role="group" data-i18n-aria="follow.orient.aria" aria-label="Ориентация на картата при следене">
       <button data-orient="heading" class="on" data-i18n="orient.heading" data-i18n-title="orient.heading.title" title="Посоката на движение сочи нагоре">Посока</button>
       <button data-orient="north" data-i18n="orient.north" data-i18n-title="orient.north.title" title="Север сочи нагоре">Север</button>
@@ -86,8 +86,8 @@
   <!-- Горе вляво: "↓" към числата, кръглата "Лента" (скрива и връща лентата, стрелкичката сочи накъде) и текстовото "Следене / Стоп" - винаги тук, лентата го няма -->
   <div class="maptl">
     <button id="toPanelBtn" class="btn ico round-fab" type="button" data-act="to-panel" data-i18n-title="topanel" data-i18n-aria="topanel" title="Към числата под картата" aria-label="Към числата под картата"><svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v13.5M5.5 12.5 12 19l6.5-6.5"/></svg></button>
-    <button id="barHandle" class="btn ico round-fab bar-toggle" type="button" data-act="toggle-bar" data-dir="up" aria-expanded="true" aria-label="Скрий горната лента" title="Скрий горната лента"><svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3.4" width="6" height="6" rx="1.2"/><rect x="9" y="3.4" width="6" height="6" rx="1.2"/><rect x="15" y="3.4" width="6" height="6" rx="1.2"/><path class="bt-arr" d="M12 19.4V13M8.8 16.2 12 13l3.2 3.2"/></svg></button>
-    <button id="followMapBtn" class="btn follow-btn follow-fab" type="button" data-act="follow" aria-pressed="false" aria-label="Следене - пусни следенето по GPS">Следене</button>
+    <button id="barHandle" class="btn ico round-fab bar-toggle" type="button" data-act="toggle-bar" data-dir="up" aria-expanded="true" data-i18n-aria="bar.hide" data-i18n-title="bar.hide" aria-label="Скрий горната лента" title="Скрий горната лента"><svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3.4" width="6" height="6" rx="1.2"/><rect x="9" y="3.4" width="6" height="6" rx="1.2"/><rect x="15" y="3.4" width="6" height="6" rx="1.2"/><path class="bt-arr" d="M12 19.4V13M8.8 16.2 12 13l3.2 3.2"/></svg></button>
+    <button id="followMapBtn" class="btn follow-btn follow-fab" type="button" data-act="follow" aria-pressed="false" data-i18n="follow.start" data-i18n-aria="follow.start.aria" aria-label="Следене - пусни следенето по GPS">Следене</button>
   </div>
   <div class="mapctl tr">
     <div class="seg base" role="group" data-i18n-aria="base.aria" aria-label="Основа на картата">
@@ -96,7 +96,7 @@
     </div>
     <button class="btn ico map-undo" type="button" data-act="undo" id="undoBtn" data-i18n-title="act.undo" data-i18n-aria="act.undo" title="Отмени" aria-label="Отмени" disabled><svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
     <label class="chk" id="vtxChk" data-i18n-title="vtx.title" title="Точки - кръгчетата и номерата на чертаните точки"><input type="checkbox" id="vtxToggle" checked data-i18n-aria="vtx.aria" aria-label="Точки"><svg class="ico-svg vtx-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="7.6" fill="none" stroke="currentColor" stroke-width="2.6"/><text x="12" y="16.1" text-anchor="middle" font-size="10.5" font-weight="700" font-family="ui-monospace, Menlo, monospace" fill="currentColor">1</text></svg></label>
-    <button id="northBtn" class="compass" type="button" data-act="north" title="Върни север нагоре" aria-label="Север - върни север нагоре" hidden><span class="rose" aria-hidden="true"><i class="needle"></i><b class="n" data-i18n="compass.n">С</b></span><span id="northLbl">Север</span></button>
+    <button id="northBtn" class="compass" type="button" data-act="north" data-i18n-title="compass.north.title" data-i18n-aria="compass.north.aria" title="Върни север нагоре" aria-label="Север - върни север нагоре" hidden><span class="rose" aria-hidden="true"><i class="needle"></i><b class="n" data-i18n="compass.n">С</b></span><span id="northLbl" data-i18n="orient.north">Север</span></button>
   </div>
   <div class="mapctl br">
     <button class="btn ico" data-act="zoom-in" data-i18n-aria="zoom.in" aria-label="Приближи">+</button>
@@ -111,7 +111,7 @@
     <button class="btn sm ico" data-act="walkbar-close" data-i18n-aria="walkbar.close" data-i18n-title="act.close" aria-label="Затвори реда за сваляне" title="Затвори">&times;</button>
   </div>
   <div id="cutBox" class="cutbox" hidden>
-    <b id="cutText">Изрязване: цъкни началото по линията на трака</b>
+    <b id="cutText" data-i18n="cut.start">Изрязване: цъкни началото по линията на трака</b>
     <span id="cutSub" class="muted"></span>
     <span class="cut-actions">
       <button class="btn sm pri" data-act="cut-ok" disabled data-i18n="cut.ok">Потвърди</button>
@@ -149,7 +149,7 @@
     <button class="btn sm ico follow-x" data-act="walk-forget" id="walkForget" data-i18n-aria="walk.forget.aria" data-i18n-title="walk.forget.title" aria-label="Махни панела „Следене“" title="Махни панела и изминатото за сваляне" hidden>&times;</button>
     <div class="follow-stats">
       <div><small data-i18n="fs.done">Изминати</small><b class="num" id="fDone">0</b></div>
-      <div><small data-i18n="fs.time">Време</small><b class="num" id="fTime">0:00 ч</b></div>
+      <div><small data-i18n="fs.time">Време</small><b class="num" id="fTime">0:00</b></div>
       <div><small data-i18n="fs.left">Остават</small><b class="num" id="fLeft">-</b></div>
       <div><small data-i18n="fs.off">Встрани</small><b class="num" id="fOff">-</b></div>
     </div>
@@ -182,7 +182,7 @@
       <button class="btn" data-act="export-gpx" data-i18n="act.exportGpx">Изнеси .gpx</button>
       <button class="btn" data-act="picture" data-i18n="act.picture">Картина</button>
       <button class="btn" data-act="save" data-i18n="act.save">Запази</button>
-      <button class="btn follow-btn" data-act="follow" aria-pressed="false" aria-label="Следене - пусни следенето по GPS">Следене</button>
+      <button class="btn follow-btn" data-act="follow" aria-pressed="false" data-i18n="follow.start" data-i18n-aria="follow.start.aria" aria-label="Следене - пусни следенето по GPS">Следене</button>
       <label class="tol"><span data-i18n="bar.tol">Отклонение</span> <input type="text" class="tolInput num" inputmode="numeric" pattern="[0-9]*" maxlength="3" value="20" autocomplete="off" data-i18n-aria="tol.aria" data-i18n-title="tol.title" aria-label="Максимално допустимо отклонение в метри" title="Отклонение в метри, от 0 до 999. Enter прилага."> <span class="tol-unit" data-i18n="unit.m">м</span></label>
     </div>
     <p class="hint" data-i18n="hint">Клик върху сегмент го слага в маршрута като следваща част. Пръстенът е точка на прекъсване: клик върху клона, по който маршрутът да продължи, сменя посоката там. Дублиращите се участъци са извън маршрута, а общата отсечка между две части се минава веднъж. Посочването на ред в списъка светва същия сегмент на картата.</p>
@@ -319,7 +319,7 @@
   <form method="dialog">
     <button class="btn sm ico dlg-x" value="close" data-i18n-aria="act.close" data-i18n-title="live.x" aria-label="Затвори" title="Затвори - записът остава до следващото отваряне">&times;</button>
     <h3 data-i18n="live.h">Незавършено следене</h3>
-    <p class="live-stat"><b class="num" id="liveKm">0 км</b><span class="num" id="livePts">0 точки</span></p>
+    <p class="live-stat"><b class="num" id="liveKm"></b><span class="num" id="livePts"></span></p>
     <p class="small live-when" id="liveWhen"></p>
     <p class="muted small" data-i18n="live.note">Следенето прекъсна, преди да го спреш. Изминатото е запазено.</p>
     <div class="row end">
@@ -333,7 +333,7 @@
 
 <dialog id="dlgName" class="dlg dlg-sm">
   <form method="dialog" id="nameForm">
-    <h3 id="nameTitle">Име на файла</h3>
+    <h3 id="nameTitle" data-i18n="name.file">Име на файла</h3>
     <!-- Само при "Запази": изглаждането на записа и на сваления .gpx - над полето за име -->
     <div id="saveSmooth" class="save-smooth" hidden>
       <label class="smooth-opt"><input type="checkbox" id="rsSide">
@@ -354,7 +354,7 @@
     <div class="row end">
       <span class="muted small sp" data-i18n="name.keys">Enter сваля, Escape затваря</span>
       <button class="btn" type="button" id="nameCancel" data-i18n="act.cancel">Отказ</button>
-      <button class="btn pri" type="submit" value="save" id="nameOk">Свали</button>
+      <button class="btn pri" type="submit" value="save" id="nameOk" data-i18n="act.download">Свали</button>
     </div>
   </form>
 </dialog>

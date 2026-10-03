@@ -95,10 +95,11 @@ function barFits() {
   const browser = await chromium.launch({ args: ['--num-raster-threads=4'], env: Object.assign({}, process.env, { LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' }) });
   // Началният екран излиза само при първо пускане; проверките извън него тръгват като "вече видян".
   // newContext({ splash: true }) - чисто устройство, началният екран излиза.
+  // От 1.2.0 езикът следва браузъра: проверките тръгват с браузър на български, освен ако не е дадено друго.
   const rawContext = browser.newContext.bind(browser);
   browser.newContext = async (o = {}) => {
     const { splash, ...rest } = o;
-    const c = await rawContext(rest);
+    const c = await rawContext(Object.assign({ locale: 'bg-BG' }, rest));
     if (!splash) await c.addInitScript(() => { try { if (localStorage.getItem('gpxk.splash') == null) localStorage.setItem('gpxk.splash', 'true'); } catch (e) { /* */ } });
     return c;
   };
@@ -627,8 +628,8 @@ function barFits() {
   check(icos.every(i => i.svg && i.text === '' && i.label && i.title), 'Сателит, Топо и Центрирай са икони <svg> без дума, с aria-label и title: ' + icos.map(i => i.label).join(' / '));
   check(icos[0].label === 'Сателит' && icos[0].radar && icos[1].label === 'Топо' && /^Центрирай/.test(icos[2].label), 'имената на иконите за екранни четци са на място');
   const lbl = await page.evaluate(() => { const t = document.querySelector('#labelsToggle'), c = document.querySelector('#labelsChk').getBoundingClientRect(), sv = document.querySelector('#bar [data-act="save"]').getBoundingClientRect();
-    return { inBar: !!t.closest('#bar'), inTr: !!t.closest('.mapctl.tr'), type: t.type, text: document.querySelector('#labelsChk').textContent.trim(), right: c.left >= sv.right, last: !document.querySelector('#labelsChk').nextElementSibling, sameRow: c.top < sv.bottom && sv.top < c.bottom, prev: document.querySelector('#labelsChk').previousElementSibling.dataset.act, vtxOnMap: !!document.querySelector('.mapctl.tr #vtxToggle') }; });
-  check(lbl.inBar && !lbl.inTr && lbl.type === 'checkbox' && lbl.text === 'Имена' && lbl.right && lbl.last && lbl.sameRow && lbl.prev === 'save' && lbl.vtxOnMap, '„Имена“ е квадратче в първия ред на лентата, вдясно от „Запази“ и последно в реда; „Точки“ остава на картата: ' + JSON.stringify(lbl));
+    return { inBar: !!t.closest('#bar'), inTr: !!t.closest('.mapctl.tr'), type: t.type, text: document.querySelector('#labelsChk').textContent.trim(), right: c.left >= sv.right, last: document.querySelector('#labelsChk').nextElementSibling === document.querySelector('#langBtn') && !document.querySelector('#langBtn').nextElementSibling, sameRow: c.top < sv.bottom && sv.top < c.bottom, prev: document.querySelector('#labelsChk').previousElementSibling.dataset.act, vtxOnMap: !!document.querySelector('.mapctl.tr #vtxToggle') }; });
+  check(lbl.inBar && !lbl.inTr && lbl.type === 'checkbox' && lbl.text === 'Имена' && lbl.right && lbl.last && lbl.sameRow && lbl.prev === 'save' && lbl.vtxOnMap, '„Имена“ е квадратче в първия ред на лентата, вдясно от „Запази“, след него е само копчето „Език“; „Точки“ остава на картата: ' + JSON.stringify(lbl));
   const layN = () => page.evaluate(() => ({ n: __gpxk.map.layers.length, chk: document.querySelector('#labelsToggle').checked, ls: localStorage.getItem('gpxk.labels') }));
   const lay0 = await layN();
   await page.click('#labelsToggle');
@@ -1085,9 +1086,9 @@ function barFits() {
   // Версия: в дъното и в името на кеша от sw.js.
   const verText = (await p5.textContent('#appVersion')).trim();
   const ver = (verText.match(/^\d+\.\d+\.\d+/) || [''])[0];
-  check(ver === '1.1.6' && await p5.isVisible('#appVersion') && /^Версия 1\.1\.6 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
+  check(ver === '1.2.0' && await p5.isVisible('#appVersion') && /^Версия 1\.2\.0 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
   const swCache = (() => { const ctx = { importScripts: f => vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx), addEventListener: () => {} }; ctx.self = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8') + ';this.__c = CACHE;', ctx); return ctx.__c; })();
-  check(swCache === 'gpxk-v25-1.1.6' && swCache === 'gpxk-v25-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
+  check(swCache === 'gpxk-v26-1.2.0' && swCache === 'gpxk-v26-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
   const liveCaches = await p5.evaluate(() => navigator.serviceWorker.ready.then(() => new Promise(r => { const t0 = Date.now(); (function poll() { caches.keys().then(k => (k.length || Date.now() - t0 > 8000) ? r(k) : setTimeout(poll, 100)); })(); })));
   check(liveCaches.length === 1 && liveCaches[0] === swCache, 'в браузъра работникът е създал кеш ' + JSON.stringify(liveCaches));
   // Бутоните са неактивни, когато няма какво да изчистят.
@@ -1097,7 +1098,7 @@ function barFits() {
     danger: !!document.querySelector('#clearTracksBtn.danger, #clearPartsBtn.danger') }));
   let b5 = await btns5();
   check(b5.nov && b5.izt && b5.novIn && b5.iztIn && b5.novT === 'Нов' && b5.iztT === 'Изтрий' && !b5.danger, 'празно: "Нов" (при траковете) и "Изтрий" (в заглавието на частите) са неактивни ' + JSON.stringify(b5));
-  const heads = await p5.evaluate(() => Array.from(document.querySelectorAll('.cols h2')).map(h => h.firstChild.nodeType === 3 ? h.firstChild.textContent.trim() : h.querySelector('.fold-t').childNodes[1].textContent.trim()));
+  const heads = await p5.evaluate(() => Array.from(document.querySelectorAll('.cols h2')).map(h => h.querySelector('[data-i18n]').textContent.trim()));
   check(JSON.stringify(heads) === JSON.stringify(['Части в маршрута', 'Точки', 'Тракове-източници', 'Дубликати', 'Изрязано от тракове']), 'заглавията на панелите: ' + JSON.stringify(heads));
   // Свити в началото.
   const FOLDS = [['#ptsCard', '#ptsCount'], ['#dupsCard', '#dupsCount'], ['#cutsCard', '#cutsCount']];
@@ -1981,6 +1982,207 @@ function barFits() {
     await p11.screenshot({ path: path.join(OUT, 'pic-ctl-360.png') });
     await p11.evaluate(() => document.querySelector('#picCloseBtn').click());
     await c11.close();
+  }
+
+  // ---- 1.2.0: език на интерфейса - речник bg/en, копчето „Език“, автоматичен превод ----
+  {
+    const watch = pg => { const errs = []; pg.on('pageerror', e => errs.push('pageerror: ' + e.message)); pg.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text()) && !/api\.opentopodata\.org/.test(m.text())) errs.push('console: ' + m.text()); }); return errs; };
+    const ready = pg => pg.waitForFunction(() => window.__gpxk && window.__gpxk.ready, null, { timeout: 15000 });
+    // Кирилица по екрана: видимите текстове, подсказките (title, aria-label, placeholder, alt), стойностите
+    // на полетата и целият текст в прозорците. Без данните на потребителя (имена на тракове, маршрути, точки).
+    function cyrScan() {
+      const cyr = /[Ѐ-ӿ]/, bad = [], g = window.__gpxk;
+      const mine = [].concat(...g.S.tracks.map(t => [t.name, t.title].concat((t.wpts || []).map(w => w.name))), g.S.routes.map(r => r.name)).filter(Boolean);
+      const own = v => mine.some(n => v.includes(n));
+      const shown = e => !e.closest('[hidden]') && !e.closest('dialog:not([open])') && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden' && e.getBoundingClientRect().width > 0;
+      const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      while (w.nextNode()) {
+        const n = w.currentNode, e = n.parentElement, t = n.data.trim();
+        if (!t || !cyr.test(t) || e.closest('script') || own(t)) continue;
+        if (shown(e) || e.closest('dialog')) bad.push(t.slice(0, 60));
+      }
+      document.querySelectorAll('[title],[aria-label],[placeholder],[alt]').forEach(e => ['title', 'aria-label', 'placeholder', 'alt'].forEach(a => { const v = e.getAttribute(a); if (v && cyr.test(v) && !own(v)) bad.push(a + ': ' + v.slice(0, 60)); }));
+      document.querySelectorAll('input[type="text"], input[type="search"]').forEach(i => { if (cyr.test(i.value) && !own(i.value)) bad.push('value: ' + i.value); });
+      if (cyr.test(document.title)) bad.push('document.title');
+      return bad;
+    }
+
+    // Огледалото на речника: всеки ключ има bg и en, в английските няма кирилица, заместителите съвпадат.
+    const cm = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const pm = await cm.newPage(); const em = watch(pm);
+    await pm.goto(url); await ready(pm);
+    const mir = await pm.evaluate(() => {
+      const W = I18N.all, keys = Object.keys(W), bad = [];
+      const ph = s => (s.match(/\{\w+\}/g) || []).sort().join(',');
+      keys.forEach(k => { const e = W[k]; if (!Array.isArray(e) || !e[0] || !e[1]) bad.push(k + ': празно'); else if (/[Ѐ-ӿ]/.test(e[1])) bad.push(k + ': кирилица в en'); else if (ph(e[0]) !== ph(e[1])) bad.push(k + ': заместители'); });
+      // Всички ключове от index.html и от кода са в речника.
+      const used = new Set();
+      document.querySelectorAll('*').forEach(el => Object.keys(el.dataset).forEach(d => { if (/^i18n/.test(d)) used.add(el.dataset[d]); }));
+      const miss = [...used].filter(k => !W[k]);
+      return { n: keys.length, bad, miss, lang: document.documentElement.lang };
+    });
+    const src = ['app.js', 'util.js', 'snapshot.js', 'follow.js', 'gpx.js', 'map.js', 'elev.js'].map(f => fs.readFileSync(path.join(ROOT, 'js', f), 'utf8')).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
+    const codeKeys = [...new Set([...src.matchAll(/\bT(?:E)?\(\s*'([\w.]+)'\s*[,)]/g)].map(m => m[1]).concat([...src.matchAll(/\bT\.n\(\s*'([\w.]+)'\s*,/g)].flatMap(m => [m[1] + '.1', m[1] + '.n'])))];
+    const missCode = await pm.evaluate(ks => ks.filter(k => !I18N.all[k]), codeKeys);
+    check(mir.n > 400 && !mir.bad.length && !mir.miss.length && !missCode.length && codeKeys.length > 200, '1.2.0: речникът е огледален - ' + mir.n + ' ключа, всеки с bg и en, без кирилица в en; ' + codeKeys.length + ' ключа от кода и всички от index.html са в него' + (mir.bad.length || mir.miss.length || missCode.length ? ': ' + JSON.stringify({ bad: mir.bad.slice(0, 8), miss: mir.miss, missCode }) : ''));
+    // Кирилица, останала в кода извън речника (низове в кавички, без коментарите).
+    const leftover = src.split('\n').filter(l => !/^\s*(\/\/|\/?\*)/.test(l)).filter(l => /'[^'\n]*[Ѐ-ӿ][^'\n]*'/.test(l.replace(/\/\*.*?\*\//g, '').replace(/\/\/.*$/, ''))).filter(l => !/'кеш'|'изрязана'|BG = \{|var TR = \{|'unit\.|'months\.short'|'dirs'/.test(l));
+    check(!leftover.length, '1.2.0: в js/ няма видими низове на кирилица извън речника' + (leftover.length ? ': ' + leftover.slice(0, 5).map(l => l.trim().slice(0, 90)).join(' | ') : ''));
+    check(mir.lang === 'bg' && await pm.textContent('#langCode') === 'БГ', '1.2.0: браузър на български - интерфейсът е на български, копчето казва „БГ“');
+    await cm.close();
+
+    // Браузър на английски, без избор: целият интерфейс е на английски, на екрана няма кирилица.
+    const ce = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 800 }, acceptDownloads: true });
+    const pe = await ce.newPage(); const ee = watch(pe);
+    await pe.goto(url); await ready(pe);
+    const e0 = await pe.evaluate(() => ({ lang: document.documentElement.lang, code: document.querySelector('#langCode').textContent, save: document.querySelector('#bar [data-act="save"]').textContent, empty: document.querySelector('#empty b').textContent, route: document.querySelector('#routeName').value, pref: localStorage.getItem('gpxk.lang') }));
+    check(e0.lang === 'en' && e0.code === 'EN' && e0.save === 'Save' && e0.empty === 'Your route will appear here' && e0.route === 'New route' && e0.pref === null, '1.2.0: браузър на английски без избор - интерфейсът е на английски: ' + JSON.stringify(e0));
+    const scan0 = await pe.evaluate(cyrScan);
+    check(!scan0.length, '1.2.0, en: празната страница е без нито един кирилски надпис' + (scan0.length ? ': ' + scan0.slice(0, 10).join(' | ') : ''));
+    await pe.click('#empty [data-act="add-tracks"]');
+    await pe.setInputFiles('#fileInput', [fx('hisarya-izhod.gpx'), fx('momina-banya.gpx'), fx('obratno.gpx'), fx('snimka.jpg')]);
+    await pe.waitForFunction(() => !/Reading file/.test(document.querySelector('#importMsg').textContent) && /snimka\.jpg/.test(document.querySelector('#importMsg').textContent));
+    const imp = await pe.evaluate(() => ({ msg: document.querySelector('#importMsg').textContent, toast: document.querySelector('#toast').textContent }));
+    check(/does not look like GPX/.test(imp.msg) && /\d+(\.\d)?\skm, [\d,]+ points/.test(imp.msg) && /1 waypoint/.test(imp.msg), '1.2.0, en: импортът и съобщенията са на английски: ' + JSON.stringify(imp).slice(0, 300));
+    const scan1 = await pe.evaluate(cyrScan);
+    check(!scan1.length, '1.2.0, en: с отворен прозорец „Import GPX“ няма кирилица' + (scan1.length ? ': ' + scan1.slice(0, 10).join(' | ') : ''));
+    await pe.keyboard.press('Escape');
+    // Част в маршрута с клик върху трака, после панелите, подсказката и прозорецът за картината.
+    const tp = await pe.evaluate(() => { const g = __gpxk, t = g.S.tracks[0], p = t.pts[Math.floor(t.pts.length / 3)]; g.map.setView(p[0], p[1], 15); const q = g.map.project(p[0], p[1]), r = document.querySelector('#map').getBoundingClientRect(); return { x: r.left + q.x, y: r.top + q.y }; });
+    await pe.mouse.click(tp.x, tp.y);
+    await pe.waitForFunction(() => __gpxk.G && __gpxk.G.count >= 1, null, { timeout: 3000 }).catch(() => {});
+    const e1 = await pe.evaluate(() => ({ parts: __gpxk.G.count, toast: document.querySelector('#toast').textContent, len: document.querySelector('#sLen').textContent, stats: [...document.querySelectorAll('#stats small')].map(s => s.textContent) }));
+    check(e1.parts >= 1 && /^Part 1 in the route · [\d.]+\skm$/.test(e1.toast) && /\skm$/.test(e1.len) && e1.stats.join() === 'Length,Ascent,Descent,Max grade,Parts,Points,Skipped', '1.2.0, en: клик върху трак слага част 1, съобщението и числата са на английски: ' + JSON.stringify(e1));
+    await pe.evaluate(() => document.querySelector('.actions [data-act="picture"]').click());
+    await pe.waitForFunction(() => document.querySelector('#dlgPic').open && /pixels/.test(document.querySelector('#picEst').textContent), null, { timeout: 3000 }).catch(() => {});
+    const scan2 = await pe.evaluate(cyrScan);
+    check(!scan2.length && /^The picture comes out at/.test(await pe.textContent('#picEst')), '1.2.0, en: с част в маршрута и отворен прозорец „Picture for offline use“ няма кирилица' + (scan2.length ? ': ' + scan2.slice(0, 10).join(' | ') : ''));
+    await pe.keyboard.press('Escape');
+    await pe.click('#langBtn');
+    await pe.waitForFunction(() => document.querySelector('#dlgLang').open);
+    const scan3 = await pe.evaluate(cyrScan);
+    check(!scan3.length && /Browser language: English/.test(await pe.textContent('#langAutoSub')), '1.2.0, en: прозорецът „Language“ е на английски („Bulgarian“, не „Български“)' + (scan3.length ? ': ' + scan3.slice(0, 10).join(' | ') : ''));
+    await pe.keyboard.press('Escape');
+    check(!ee.length, '1.2.0, en: конзолата е чиста' + (ee.length ? ': ' + ee.join(' | ') : ''));
+    await pe.screenshot({ path: path.join(OUT, 'lang-en-1280.png') });
+    await ce.close();
+
+    // Смяна и памет: БГ → English насред работа (нищо не се губи) → презареждане → English остава → Български.
+    const cs = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const ps = await cs.newPage(); const es = watch(ps);
+    await ps.goto(url); await ready(ps);
+    await ps.click('#empty [data-act="add-tracks"]');
+    await ps.setInputFiles('#fileInput', [fx('hisarya-izhod.gpx'), fx('momina-banya.gpx')]);
+    await ps.waitForFunction(() => __gpxk.S.tracks.length === 2 && !/Чета файл/.test(document.querySelector('#importMsg').textContent));
+    await ps.keyboard.press('Escape');
+    await ps.click('[data-mode="cut"]');
+    const state = () => ps.evaluate(() => ({ tracks: __gpxk.S.tracks.map(t => t.name).join('|'), items: JSON.stringify(__gpxk.S.routes.map(r => [r.name, r.items.length])), view: JSON.stringify(__gpxk.map.getView()), mode: __gpxk.ui.mode, undo: __gpxk.ui.undo.length }));
+    const s0 = await state();
+    const t0 = await ps.evaluate(() => ({ save: document.querySelector('#bar [data-act="save"]').textContent, cut: document.querySelector('#cutText').textContent }));
+    await ps.click('#langBtn');
+    await ps.waitForFunction(() => document.querySelector('#dlgLang').open);
+    const dl = await ps.evaluate(() => ({ radios: [...document.querySelectorAll('#langForm input[name="lang"]')].map(r => r.value + (r.checked ? '*' : '')), sub: document.querySelector('#langAutoSub').textContent, inBar: !!document.querySelector('#bar #langBtn'), title: document.querySelector('#dlgLang h3').textContent }));
+    check(dl.inBar && dl.title === 'Език' && dl.radios.join() === 'auto*,bg,en' && /български/.test(dl.sub), '1.2.0: копчето с глобуса в лентата отваря „Език“ с Автоматично / Български / English: ' + JSON.stringify(dl));
+    await ps.click('#langForm input[value="en"]');
+    await ps.waitForFunction(() => document.documentElement.lang === 'en');
+    const s1 = await state();
+    const t1 = await ps.evaluate(() => ({ save: document.querySelector('#bar [data-act="save"]').textContent, cut: document.querySelector('#cutText').textContent, code: document.querySelector('#langCode').textContent, title: document.querySelector('#dlgLang h3').textContent, pref: localStorage.getItem('gpxk.lang'), tracksH: document.querySelector('[data-i18n="tracks.h"]').textContent, tol: document.querySelector('.tolVal').textContent }));
+    check(t0.save === 'Запази' && /^Изрязване/.test(t0.cut) && t1.save === 'Save' && /^Cut: /.test(t1.cut) && t1.code === 'EN' && t1.title === 'Language' && t1.pref === '"en"' && t1.tracksH === 'Source tracks' && t1.tol === '20 m', '1.2.0: смяна на English - веднага, без презареждане, и надписите от кода (Изрязване, отклонението): ' + JSON.stringify(t1));
+    check(JSON.stringify(s0) === JSON.stringify(s1), '1.2.0: смяната насред работа не губи нищо - траковете, маршрутите, изгледът, режимът и отмяната са същите: ' + JSON.stringify(s1));
+    await ps.keyboard.press('Escape');
+    await ps.reload(); await ready(ps);
+    const t2 = await ps.evaluate(() => ({ lang: document.documentElement.lang, save: document.querySelector('#bar [data-act="save"]').textContent, code: document.querySelector('#langCode').textContent, tracks: __gpxk.S.tracks.length }));
+    check(t2.lang === 'en' && t2.save === 'Save' && t2.code === 'EN' && t2.tracks === 2, '1.2.0: след презареждане изборът се помни, езикът на страницата също: ' + JSON.stringify(t2));
+    await ps.click('#langBtn');
+    await ps.waitForFunction(() => document.querySelector('#dlgLang').open);
+    await ps.click('#langForm input[value="bg"]');
+    await ps.waitForFunction(() => document.documentElement.lang === 'bg');
+    check(await ps.textContent('#bar [data-act="save"]') === 'Запази' && await ps.evaluate(() => localStorage.getItem('gpxk.lang')) === '"bg"', '1.2.0: „Български“ връща българския и се помни');
+    await ps.keyboard.press('Escape');
+    check(!es.length, '1.2.0: смяна и памет - конзолата е чиста' + (es.length ? ': ' + es.join(' | ') : ''));
+    await cs.close();
+
+    // Трети език без избор: браузър на немски - интерфейсът остава български, без грешки.
+    const cd = await browser.newContext({ locale: 'de-DE', viewport: { width: 390, height: 844 } });
+    const pd = await cd.newPage(); const ed = watch(pd);
+    await pd.goto(url); await ready(pd);
+    await pd.click('#langBtn');
+    await pd.waitForFunction(() => document.querySelector('#dlgLang').open);
+    const d0 = await pd.evaluate(() => ({ lang: document.documentElement.lang, save: document.querySelector('#bar [data-act="save"]').textContent, code: document.querySelector('#langCode').textContent, sub: document.querySelector('#langAutoSub').textContent, btn: (r => r.width > 0 && r.right <= innerWidth && r.left >= 0)(document.querySelector('#langBtn').getBoundingClientRect()) }));
+    check(d0.lang === 'bg' && d0.save === 'Запази' && d0.code === 'БГ' && /de/.test(d0.sub) && d0.btn, '1.2.0: браузър на немски без избор - интерфейсът остава на български; на 390 px копчето „Език“ е на екрана: ' + JSON.stringify(d0));
+    await pd.screenshot({ path: path.join(OUT, 'lang-dialog-390.png') });
+    check(!ed.length, '1.2.0: трети език - конзолата е чиста' + (ed.length ? ': ' + ed.join(' | ') : ''));
+    await cd.close();
+
+    // Без преводач в браузъра (window.Translator липсва): редът „Автоматичен превод“ е бледо, със съобщение; всичко работи.
+    const cn = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    await cn.addInitScript(() => { try { delete window.Translator; } catch (e) { /* */ } Object.defineProperty(window, 'Translator', { value: undefined, configurable: true, writable: true }); });
+    const pn = await cn.newPage(); const en_ = watch(pn);
+    await pn.goto(url); await ready(pn);
+    await pn.click('#langBtn');
+    await pn.waitForFunction(() => /Браузърът ти не поддържа автоматичен превод/.test(document.querySelector('#langTrMsg').textContent), null, { timeout: 3000 }).catch(() => {});
+    const n0 = await pn.evaluate(() => ({ msg: document.querySelector('#langTrMsg').textContent, off: document.querySelector('#langTr').classList.contains('off'), dis: document.querySelector('#langTrSel').disabled, opts: document.querySelector('#langTrSel').options.length, note: document.querySelector('#dlgLang [data-i18n="lang.note"]').textContent }));
+    check(/Браузърът ти не поддържа автоматичен превод/.test(n0.msg) && /Chrome на компютър/.test(n0.msg) && n0.off && n0.dis && n0.opts === 1 && !/отложен/.test(n0.note), '1.2.0: без window.Translator „Автоматичен превод“ е бледо и забранено, със съобщение и обяснение: ' + JSON.stringify(n0));
+    await pn.click('#langForm input[value="en"]');
+    await pn.waitForFunction(() => document.documentElement.lang === 'en');
+    const n1 = await pn.evaluate(() => ({ save: document.querySelector('#bar [data-act="save"]').textContent, msg: document.querySelector('#langTrMsg').textContent }));
+    await pn.keyboard.press('Escape');
+    await pn.click('#empty [data-act="add-tracks"]');
+    await pn.setInputFiles('#fileInput', [fx('hisarya-izhod.gpx')]);
+    await pn.waitForFunction(() => __gpxk.S.tracks.length === 1, null, { timeout: 5000 }).catch(() => {});
+    await pn.keyboard.press('Escape');
+    check(n1.save === 'Save' && /does not support automatic translation/.test(n1.msg) && await pn.evaluate(() => __gpxk.S.tracks.length) === 1 && !en_.length, '1.2.0: без преводач приложението работи нормално (речникът, импорт), конзолата е чиста: ' + JSON.stringify(n1) + (en_.length ? ' ' + en_.join(' | ') : ''));
+    await cn.close();
+
+    // Подставен преводач (връща 'TEST:' + текста; дава само de, fr, ja; първо трябва да „изтегли“ езика;
+    // низът „Изтрий“ се проваля): изборът превежда речника, помни се след презареждане, данните не се пипат.
+    const ct = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    await ct.addInitScript(() => {
+      window.__trCalls = 0;
+      window.Translator = {
+        availability: async o => o.sourceLanguage === 'bg' && ['de', 'fr', 'ja'].includes(o.targetLanguage) ? (localStorage.getItem('fakeTr.dl') ? 'available' : 'downloadable') : 'unavailable',
+        create: async o => {
+          if (o.monitor && !localStorage.getItem('fakeTr.dl')) {
+            const m = new EventTarget(); o.monitor(m);
+            for (const f of [0.25, 0.6, 1]) { await new Promise(r => setTimeout(r, 200)); const e = new Event('downloadprogress'); e.loaded = f; m.dispatchEvent(e); }
+          }
+          localStorage.setItem('fakeTr.dl', '1');
+          return { translate: async s => { window.__trCalls++; if (s === 'Изтрий') throw new Error('fake'); return 'TEST:' + s; }, destroy() {} };
+        }
+      };
+    });
+    const pt = await ct.newPage(); const et = watch(pt);
+    await pt.goto(url); await ready(pt);
+    await pt.click('#empty [data-act="add-tracks"]');
+    await pt.setInputFiles('#fileInput', [fx('hisarya-izhod.gpx')]);
+    await pt.waitForFunction(() => __gpxk.S.tracks.length === 1);
+    await pt.keyboard.press('Escape');
+    const trName = await pt.evaluate(() => __gpxk.S.tracks[0].name);
+    await pt.click('#langBtn');
+    await pt.waitForFunction(() => !document.querySelector('#langTrSel').disabled, null, { timeout: 3000 }).catch(() => {});
+    const opts = await pt.evaluate(() => [...document.querySelector('#langTrSel').options].map(o => o.value + '=' + o.textContent));
+    check(opts.length === 4 && opts.slice(1).map(o => o.slice(0, 2)).join() === 'de,fr,ja' && !/[A-Za-z]{2}=[a-z]{2}$/.test(opts[1]), '1.2.0: в менюто „Автоматичен превод“ са само езиците, които браузърът дава: ' + opts.join(' | '));
+    await pt.selectOption('#langTrSel', 'de');
+    const dlSeen = await pt.waitForFunction(() => /Изтеглям езика/.test(document.querySelector('#langTrMsg').textContent) && document.documentElement.lang === 'bg' && document.querySelector('#bar [data-act="save"]').textContent === 'Запази', null, { timeout: 2000 }).then(() => true, () => false);
+    await pt.waitForFunction(() => document.documentElement.lang === 'de', null, { timeout: 15000 }).catch(() => {});
+    const r0 = await pt.evaluate(() => ({ lang: document.documentElement.lang, save: document.querySelector('#bar [data-act="save"]').textContent, clear: document.querySelector('#clearPartsBtn').textContent, code: document.querySelector('#langCode').textContent, pref: localStorage.getItem('gpxk.lang'), msg: document.querySelector('#langTrMsg').textContent, track: __gpxk.S.tracks[0].name, route: document.querySelector('#routeName').value, cut: document.querySelector('#cutText').textContent, toastFn: T('msg.partAdded', { n: 2, len: '1 km' }), cache: Object.keys(JSON.parse(localStorage.getItem('gpxk.tr.de') || '{}')).length, foot: document.querySelector('[data-i18n="foot.src"]').textContent }));
+    check(dlSeen, '1.2.0: докато езикът се „изтегля“, прозорецът казва „Изтеглям езика…“ и надписите още не са сменени');
+    check(r0.lang === 'de' && r0.save === 'TEST:Запази' && r0.code === 'DE' && r0.pref === '"tr:de"' && /^TEST:/.test(r0.msg) && /^TEST:/.test(r0.cut) && r0.toastFn === 'TEST:Част 2 в маршрута · 1 km' && r0.cache > 400 && /Esri World Imagery/.test(r0.foot), '1.2.0: изборът „de“ превежда целия речник (надписи, съобщения от кода), сменя lang и се помни като tr:de: ' + JSON.stringify(r0).slice(0, 400));
+    check(r0.clear === 'Изтрий' && r0.track === trName && !/TEST:/.test(r0.track + r0.route), '1.2.0: низ с провален превод остава български; имената на траковете и маршрута не се превеждат: ' + JSON.stringify({ clear: r0.clear, track: r0.track, route: r0.route }));
+    await pt.keyboard.press('Escape');
+    await pt.reload(); await ready(pt);
+    const r1 = await pt.evaluate(() => ({ lang: document.documentElement.lang, save: document.querySelector('#bar [data-act="save"]').textContent, empty: document.querySelector('[data-i18n="tracks.h"]').textContent, code: document.querySelector('#langCode').textContent, track: __gpxk.S.tracks[0].name }));
+    check(r1.lang === 'de' && r1.save === 'TEST:Запази' && r1.empty === 'TEST:Тракове-източници' && r1.code === 'DE' && r1.track === trName, '1.2.0: след презареждане автоматичният превод остава (от пазения превод): ' + JSON.stringify(r1));
+    await pt.click('#langBtn');
+    await pt.waitForFunction(() => document.querySelector('#dlgLang').open && !document.querySelector('#langTrSel').disabled, null, { timeout: 3000 }).catch(() => {});
+    const r2 = await pt.evaluate(() => ({ sel: document.querySelector('#langTrSel').value, radios: [...document.querySelectorAll('#langForm input[name="lang"]')].filter(r => r.checked).length }));
+    await pt.click('#langForm input[value="bg"]');
+    await pt.waitForFunction(() => document.documentElement.lang === 'bg');
+    const r3 = await pt.evaluate(() => ({ save: document.querySelector('#bar [data-act="save"]').textContent, sel: document.querySelector('#langTrSel').value, pref: localStorage.getItem('gpxk.lang') }));
+    check(r2.sel === 'de' && r2.radios === 0 && r3.save === 'Запази' && r3.sel === '' && r3.pref === '"bg"', '1.2.0: прозорецът показва избрания превод; „Български“ връща речника: ' + JSON.stringify([r2, r3]));
+    await pt.keyboard.press('Escape');
+    check(!et.length, '1.2.0: автоматичен превод - конзолата е чиста' + (et.length ? ': ' + et.join(' | ') : ''));
+    await ct.close();
   }
 
   check(errors.length === 0, 'конзолата е чиста' + (errors.length ? ': ' + errors.join(' | ') : ''));

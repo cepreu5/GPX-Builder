@@ -1451,12 +1451,12 @@
       ctx.fillText(G && G.pts.length > 1 ? T('prof.waitEle') : T('prof.waitPart'), W / 2, H / 2);
       return;
     }
-    var L = 52, Rr = 10, T = ui.grade ? 20 : 10, B = ui.grade ? 34 : 20;
+    var L = 52, Rr = 10, TOP = ui.grade ? 20 : 10, B = ui.grade ? 34 : 20;
     var min = prof.min, max = prof.max;
     if (max - min < 20) { max += 10; min -= 10; }
     var total = prof.total || 1;
     function X(d) { return L + d / total * (W - L - Rr); }
-    function Y(e) { return T + (1 - (e - min) / (max - min)) * (H - T - B); }
+    function Y(e) { return TOP + (1 - (e - min) / (max - min)) * (H - TOP - B); }
     prof._X = X; prof._L = L; prof._R = Rr; prof._W = W;
     // Мрежа и надписи.
     ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.fillStyle = C.muted;
@@ -1496,22 +1496,22 @@
         var e0 = Elev.eleAt(prof, d0), e1 = Elev.eleAt(prof, d1);
         var gpct = (e1 - e0) / (d1 - d0) * 100;
         ctx.fillText(U.pct(gpct), X((d0 + d1) / 2), 3);
-        if (pi) { ctx.strokeStyle = C.line; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(X(d0), T); ctx.lineTo(X(d0), H - B); ctx.stroke(); ctx.setLineDash([]); }
+        if (pi) { ctx.strokeStyle = C.line; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(X(d0), TOP); ctx.lineTo(X(d0), H - B); ctx.stroke(); ctx.setLineDash([]); }
       }
     }
     // Посочено място.
     if (ui.profD != null) {
       var hx = X(ui.profD), he = Elev.eleAt(prof, ui.profD);
       ctx.strokeStyle = C.ink; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(hx, T); ctx.lineTo(hx, H - B); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(hx, TOP); ctx.lineTo(hx, H - B); ctx.stroke();
       var g = prof.grades.filter(function (x) { return ui.profD >= x.d0 && ui.profD <= x.d1; })[0];
       var txt = T('km.at', { d: U.num(ui.profD / 1000, 1) }) + ' · ' + U.meters(he) + (g ? ' · ' + U.pct(g.g) : '');
       ctx.font = mono; var tw = ctx.measureText(txt).width + 10;
       var tx = Math.min(Math.max(L, hx - tw / 2), W - Rr - tw);
-      ctx.fillStyle = C.surface; ctx.fillRect(tx, T, tw, 16);
-      ctx.strokeStyle = C.line; ctx.strokeRect(tx + 0.5, T + 0.5, tw - 1, 15);
+      ctx.fillStyle = C.surface; ctx.fillRect(tx, TOP, tw, 16);
+      ctx.strokeStyle = C.line; ctx.strokeRect(tx + 0.5, TOP + 0.5, tw - 1, 15);
       ctx.fillStyle = C.ink; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.fillText(txt, tx + 5, T + 8);
+      ctx.fillText(txt, tx + 5, TOP + 8);
     }
   }
   function profileHover(e) {
