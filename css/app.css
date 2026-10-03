@@ -341,6 +341,11 @@ body.bar-hidden .pic-scroll { padding-top: 0; }
 .fold-t .chev { display: inline-block; width: 10px; font-size: 11px; color: var(--app-muted); transition: transform .12s; }
 .fold.open .fold-t .chev { transform: rotate(90deg); }
 .fold-t .num { font-weight: 400; }
+.fold > .card-head { margin: 0; flex-wrap: wrap; row-gap: 6px; }
+.fold.open > .card-head { margin-bottom: 8px; }
+.fold > .card-head h2 { flex: 1 1 auto; min-width: 0; margin: 0; }
+.card-head .head-acts { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; }
+.card-head .head-acts .btn { margin-left: 0; }
 .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
 .cols .col { min-width: 0; }
 .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }

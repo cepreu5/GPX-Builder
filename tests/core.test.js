@@ -548,3 +548,60 @@ console.log('общ участък OK');
   assert.deepStrictEqual(tr.map(function (it) { return [it.a, it.b]; }), [[2500, 3000], [3500, 4900]], 'маршрутът губи изтритата отсечка - две части');
   console.log('1.3.0 разклонения: OK');
 })();
+
+// 1.3.1: изтриване на разклонение маха и съседа до NEAR_J по трака; един клик върху дубликат маха всички освен един.
+(function () {
+  var MPDL = 6371008.8 * Math.PI / 180, KX = Math.cos(42.5 * Math.PI / 180) * MPDL;
+  function lonAt(d) { return 24.70 + d / KX; }
+  function latAt(m) { return 42.5 + m / MPDL; }
+  function byIdOf(ts) { var o = {}; ts.forEach(function (t) { o[t.id] = t; }); return o; }
+  function partsOf(r, id) { return r.byTrack[id].filter(function (s) { return s.kind === 'part'; }); }
+  // (а) X на изток; Y свършва на 18 м над X при км 1,0, W - върху X при км 1,025: два пръстена на 25 м по X.
+  var ts = [
+    { id: 'X', pts: line(42.5, 24.70, 42.5, 24.76, 300) },
+    { id: 'Y', pts: line(latAt(300), lonAt(1000), latAt(18), lonAt(1000), 30) },
+    { id: 'W', pts: line(latAt(-300), lonAt(1025), 42.5, lonAt(1025), 30) }
+  ], tb = byIdOf(ts), r = Core.analyze(ts, 20);
+  assert.strictEqual(r.junctions.length, 2, '(а) два пръстена');
+  assert.strictEqual(partsOf(r, 'X').length, 2, '(а) X е разрязан на две (двата пръстена делят един разрез)');
+  var jy = r.junctions.filter(function (j) { return j.branches.some(function (b) { return b.trackId === 'Y'; }); })[0];
+  var only = Core.analyze(ts, 20, { drop: [Core.junctionPlace(jy)] });
+  assert.strictEqual(partsOf(only, 'X').length, 2, '(а) само кликнатият пръстен: съседът оставя X разрязан на две');
+  var js = Core.nearJunctions(jy, r.junctions, tb, 20);
+  assert.strictEqual(js.length, 2, '(а) с пръстена на Y пада и този на W (25 м по X)');
+  assert.ok(js[0] === jy, '(а) кликнатият е първи');
+  var route = { items: [], forks: [] };
+  js.forEach(function (j) { Core.dropJunction(route, null, j, 20); });
+  var r1 = Core.analyze(ts, 20, { drop: js.map(Core.junctionPlace) });
+  assert.strictEqual(r1.junctions.length, 0, '(а) пръстени не остават');
+  assert.deepStrictEqual(partsOf(r1, 'X').map(function (s) { return [Math.round(s.a), Math.round(s.b)]; }), [[0, Math.round(partsOf(r, 'X')[1].b)]], '(а) X е един участък');
+  // Далечен пръстен (над NEAR_J) не пада: W при км 1,1.
+  var far = [ts[0], ts[1], { id: 'W', pts: line(latAt(-300), lonAt(1100), 42.5, lonAt(1100), 30) }], rf = Core.analyze(far, 20);
+  var jf = rf.junctions.filter(function (j) { return j.branches.some(function (b) { return b.trackId === 'Y'; }); })[0];
+  assert.strictEqual(Core.nearJunctions(jf, rf.junctions, byIdOf(far), 20).length, 1, '(а) пръстен на 100 м по трака не пада');
+
+  // (б) Три трака един върху друг в общ участък (км 0,5 - 2,5 по P): Q на 5 м над P, R на 5 м под P, с отклонения в краищата.
+  function seq() { var out = []; for (var i = 0; i < arguments.length; i++) out = out.concat(i ? arguments[i].slice(1) : arguments[i]); return out; }
+  // При R на 12 м над P (на 7 м от Q) R лежи върху Q, който сам чака - остава пак P.
+  [-5, 12].forEach(function (off) {
+    var P = { id: 'P', pts: line(42.5, lonAt(0), 42.5, lonAt(3000), 150) };
+    var Q = { id: 'Q', pts: seq(line(latAt(400), lonAt(500), latAt(5), lonAt(500), 20), line(latAt(5), lonAt(500), latAt(5), lonAt(2500), 100), line(latAt(5), lonAt(2500), latAt(400), lonAt(2500), 20)) };
+    var R = { id: 'R', pts: seq(line(latAt(off < 0 ? -400 : 400), lonAt(500), latAt(off), lonAt(500), 20), line(latAt(off), lonAt(500), latAt(off), lonAt(2500), 100), line(latAt(off), lonAt(2500), latAt(off < 0 ? -400 : 400), lonAt(2500), 20)) };
+    var tt = [P, Q, R], rd = Core.analyze(tt, 20);
+    console.log('1.3.1 чакащи', rd.pend.map(function (s) { return s.trackId + '@' + s.withId + ' ' + Math.round(s.a) + '-' + Math.round(s.b); }));
+    assert.ok(rd.pend.some(function (s) { return s.trackId === 'Q'; }) && rd.pend.some(function (s) { return s.trackId === 'R'; }), '(б, ' + off + ' м) Q и R чакат като дубликати');
+    var top = rd.pend.filter(function (s) { return s.trackId === 'R'; })[0];
+    var cl = Core.dupCluster(rd.pend, top, ['P', 'Q', 'R']);
+    assert.strictEqual(cl.keep, 'P', '(б, ' + off + ' м) остава P: ' + cl.keep);
+    assert.deepStrictEqual(cl.trackIds.slice().sort(), ['Q', 'R'], '(б, ' + off + ' м) падат Q и R');
+    cl.secs.forEach(function (d) { var t = byIdOf(tt)[d.trackId]; t.skips = Core.mergeIv((t.skips || []).concat([{ a: d.a, b: d.b }])); });
+    var rd1 = Core.analyze(tt, 20);
+    assert.strictEqual(rd1.pend.length, 0, '(б, ' + off + ' м) след едно решение не остава чакащ дубликат');
+    function covers(id, x) { var t = byIdOf(tt)[id]; return partsOf(rd1, id).some(function (s) { var m = Core.nearestOnTrack(t, 42.5, lonAt(x)); return m.dist < 10 && m.d > s.a && m.d < s.b; }); }
+    [1000, 1500, 2000].forEach(function (x) {
+      var on = tt.filter(function (t) { return covers(t.id, x); }).map(function (t) { return t.id; });
+      assert.deepStrictEqual(on, ['P'], '(б, ' + off + ' м) при км ' + x / 1000 + ' остава един трак: ' + on);
+    });
+  });
+  console.log('1.3.1 съседни пръстени и куп дубликати: OK');
+})();

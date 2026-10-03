@@ -532,6 +532,48 @@
     return out;
   }
 
+  /* "Изтрий разклонението": с точката j падат и пръстените с клон по същия трак на под NEAR_J
+     метра по трака от нея - иначе тракът остава разрязан при съседа. Връща [j, ...съседите]. */
+  function nearJunctions(j, junctions, tracksById, tol) {
+    var at = junctionAt(j, tracksById, tol);
+    return [j].concat((junctions || []).filter(function (k) {
+      if (k === j || k.key === j.key) return false;
+      var ak = junctionAt(k, tracksById, tol);
+      return Object.keys(ak).some(function (id) { return at[id] != null && Math.abs(ak[id] - at[id]) < NEAR_J; });
+    }));
+  }
+
+  /* Клик върху маркер на дубликат: падат всички чакащи дубликати, които се застъпват с него -
+     пряко или през трак, върху който лежат (три и повече трака един върху друг). Чакащият е
+     винаги по-късното копие, затова на мястото остава един трак: keep - sec.withId, ако той
+     самият не чака там, иначе първият по ред трак без чакащ дубликат в мястото. */
+  function dupCluster(pend, sec, order) {
+    var area = {}, secs = [sec];
+    var left = (pend || []).filter(function (p) { return p !== sec && !(p.trackId === sec.trackId && p.a === sec.a && p.b === sec.b); });
+    function add(id, a, b) { if (id != null) (area[id] = area[id] || []).push([Math.min(a, b), Math.max(a, b)]); }
+    function hits(id, a, b) { return id != null && (area[id] || []).some(function (iv) { return overlap(iv[0], iv[1], Math.min(a, b), Math.max(a, b)) > 1; }); }
+    function take(p) { add(p.trackId, p.a, p.b); add(p.withId, p.withA, p.withB); }
+    take(sec);
+    for (var grew = true; grew;) {
+      grew = false;
+      left = left.filter(function (p) {
+        if (!hits(p.trackId, p.a, p.b) && !hits(p.withId, p.withA, p.withB)) return true;
+        take(p); secs.push(p); grew = true;
+        return false;
+      });
+    }
+    var waiting = {};
+    secs.forEach(function (p) { waiting[p.trackId] = 1; });
+    var keep = sec.withId;
+    if (keep == null || waiting[keep]) {
+      var free = (order || Object.keys(area)).filter(function (id) { return area[id] && !waiting[id]; });
+      if (free.length) keep = free[0];
+    }
+    var ids = [];
+    secs.forEach(function (p) { if (ids.indexOf(p.trackId) < 0) ids.push(p.trackId); });
+    return { keep: keep, secs: secs, trackIds: ids };
+  }
+
   /* "Изтрий разклонението" - маршрутът в точката j (fork от routeForks или null):
      ако е сменял клона там, продължава направо по трака, по който е дошъл (до края на слетия
      участък), и смяната отпада; две съседни части от един трак, които се допират в j, стават една.
@@ -1046,7 +1088,7 @@
     nearestOnTrack: nearestOnTrack, invalidShare: invalidShare, routeGeometry: routeGeometry,
     trackBounds: trackBounds, overlap: overlap, ROUTE_GAP: ROUTE_GAP, LINK_MIN: LINK_MIN, DUP_BRIDGE: DUP_BRIDGE,
     routeForks: routeForks, switchFork: switchFork, branchProbe: branchProbe,
-    redundantJunctions: redundantJunctions, dropJunction: dropJunction, junctionPlace: junctionPlace, junctionAt: junctionAt,
+    redundantJunctions: redundantJunctions, nearJunctions: nearJunctions, dupCluster: dupCluster, dropJunction: dropJunction, junctionPlace: junctionPlace, junctionAt: junctionAt,
     DROP_R: DROP_R, NEAR_J: NEAR_J,
     mergeIv: mergeIv, trimItems: trimItems, walkGaps: walkGaps, WALK_GAP: WALK_GAP, smoothWalk: smoothWalk, SMOOTH_M: SMOOTH_M,
     joinTol: function (tol) { return Math.max(ROUTE_GAP, 1.5 * (tol || 20)); }

@@ -941,29 +941,35 @@
     toast(T('msg.forkSwitched', { name: trackLabel(track(fk.br.trackId)) }));
     routeChanged();
   }
-  // Клик върху маркера: точно този дубликат излиза от маршрута и изчезва от картата.
+  // Клик върху маркера: от участъка падат всички тракове един върху друг освен един (Core.dupCluster).
   function skipDup(sec) {
-    var t = track(sec.trackId); if (!t) return;
+    if (!track(sec.trackId)) return;
+    var cl = Core.dupCluster(A.pend, sec, S.tracks.map(function (t) { return t.id; }));
     pushUndo();
-    t.skips = Core.mergeIv((t.skips || []).concat([{ a: sec.a, b: sec.b }]));
     var r = cur();
-    r.items = Core.trimItems(r.items, sec.trackId, sec.a, sec.b);
+    cl.secs.forEach(function (d) {
+      var t = track(d.trackId); if (!t) return;
+      t.skips = Core.mergeIv((t.skips || []).concat([{ a: d.a, b: d.b }]));
+      r.items = Core.trimItems(r.items, d.trackId, d.a, d.b);
+    });
     r.modified = Date.now();
     ui.drawTarget = null;
     analyzeNow();
     // Границата на дубликата може да се е преместила към точката на прекъсване: краищата на
     // изрязаните части я следват, за да стигнат до свръзката.
     var moved = false;
-    r.items.forEach(function (it) {
-      if (it.type !== 'part' || it.trackId !== sec.trackId) return;
-      (A.byTrack[sec.trackId] || []).forEach(function (s) {
-        if (s.kind !== 'part' || s.pend) return;
-        if (Math.abs(Math.min(it.a, it.b) - sec.b) < 1 && s.a < sec.b && s.b > sec.b) { if (it.a < it.b) it.a = s.a; else it.b = s.a; moved = true; }
-        if (Math.abs(Math.max(it.a, it.b) - sec.a) < 1 && s.b > sec.a && s.a < sec.a) { if (it.a < it.b) it.b = s.b; else it.a = s.b; moved = true; }
+    cl.secs.forEach(function (d) {
+      r.items.forEach(function (it) {
+        if (it.type !== 'part' || it.trackId !== d.trackId) return;
+        (A.byTrack[d.trackId] || []).forEach(function (s) {
+          if (s.kind !== 'part' || s.pend) return;
+          if (Math.abs(Math.min(it.a, it.b) - d.b) < 1 && s.a < d.b && s.b > d.b) { if (it.a < it.b) it.a = s.a; else it.b = s.a; moved = true; }
+          if (Math.abs(Math.max(it.a, it.b) - d.a) < 1 && s.b > d.a && s.a < d.a) { if (it.a < it.b) it.b = s.b; else it.a = s.b; moved = true; }
+        });
       });
     });
     if (moved) routeChanged();
-    toast(T('msg.dupRemoved', { len: U.km(sec.len) }));
+    toast(T.n('msg.dupRemoved', cl.trackIds.length, { len: U.km(sec.len) }));
   }
   // "Отвори пак": затворената сама дупка става обикновена дупка с двата бутона.
   function reopenGap(gp) {
@@ -1305,10 +1311,12 @@
     ui.drawTarget = null;
     analyzeNow();
   }
+  // С разклонението падат и пръстените по същия трак на под Core.NEAR_J м от него - тракът става едно цяло.
   function deleteJunction(j) {
+    var js = Core.nearJunctions(j, A.junctions, byId(), S.tol);
     pushUndo();
-    dropJunctions([j]);
-    toast(T('msg.juncDel'));
+    dropJunctions(js);
+    toast(T.n('msg.juncDel', js.length));
   }
   // "Изтрий участъка": изчезва от картата, от дължината на трака и от маршрута (t.dels).
   function deleteSegment(sec) {
@@ -2639,7 +2647,7 @@
   }
 
   // ---- Свиващи се панели ----
-  // "Точки", "Дубликати" и "Изрязано от тракове" са свити, докато не се отворят; помни се в браузъра.
+  // "Части в маршрута", "Точки", "Тракове-източници", "Дубликати" и "Изрязано от тракове" са свити, докато не се отворят; помни се в браузъра.
   function applyFolds() {
     $$('[data-fold]').forEach(function (c) {
       var open = ui.fold[c.dataset.fold] === true;

@@ -199,14 +199,16 @@
 
   <div class="cols">
     <div class="col">
-      <section class="card">
+      <section class="card fold" id="partsCard" data-fold="parts">
         <div class="card-head">
-          <h2><span data-i18n="parts.h">Части в маршрута</span> <span class="num muted" id="partsCount">(0)</span></h2>
+          <h2><button type="button" class="fold-t" aria-expanded="false" aria-controls="partsBody"><span class="chev" aria-hidden="true">&#9656;</span><span data-i18n="parts.h">Части в маршрута</span> <span class="num muted" id="partsCount">(0)</span></button></h2>
           <button class="btn sm" data-act="clear-parts" id="clearPartsBtn" data-i18n-title="parts.clear.title" data-i18n="parts.clear" title="Махни всички части; траковете остават. &quot;Отмени&quot; ги връща." disabled>Изтрий</button>
         </div>
+        <div class="fold-b" id="partsBody" hidden>
         <ol id="partsList" class="rows parts"></ol>
         <div id="gapsList"></div>
         <p id="partsEmpty" class="muted small" data-i18n="parts.empty">Още няма части. Клик върху трак на картата го слага в маршрута.</p>
+        </div>
       </section>
       <section class="card fold" id="ptsCard" data-fold="pts">
         <h2><button type="button" class="fold-t" aria-expanded="false" aria-controls="ptsBody"><span class="chev" aria-hidden="true">&#9656;</span><span data-i18n="pts.h">Точки</span> <span class="num muted" id="ptsCount">(0)</span></button></h2>
@@ -217,14 +219,20 @@
       </section>
     </div>
     <div class="col">
-      <section class="card">
-        <h2><span data-i18n="tracks.h">Тракове-източници</span> <span class="num muted" id="tracksCount">(0)</span></h2>
+      <section class="card fold" id="tracksCard" data-fold="tracks">
+        <div class="card-head">
+          <h2><button type="button" class="fold-t" aria-expanded="false" aria-controls="tracksBody"><span class="chev" aria-hidden="true">&#9656;</span><span data-i18n="tracks.h">Тракове-източници</span> <span class="num muted" id="tracksCount">(0)</span></button></h2>
+          <span class="head-acts">
+            <button class="btn sm" data-act="add-tracks" data-i18n="act.addTracks">Добави тракове</button>
+            <button class="btn sm" data-act="clear-tracks" id="clearTracksBtn" data-i18n-title="tracks.clear.title" data-i18n="tracks.clear" title="Махни всички тракове и маршрута от тях. &quot;Отмени&quot; връща всичко." disabled>Нов</button>
+          </span>
+        </div>
+        <div class="fold-b" id="tracksBody" hidden>
         <ul id="tracksList" class="rows tracks"></ul>
         <div class="row">
-          <button class="btn sm" data-act="add-tracks" data-i18n="act.addTracks">Добави тракове</button>
           <button class="btn sm" data-act="load-collection" data-i18n="act.loadColl">Зареди колекция</button>
           <button class="btn sm" data-act="export-collection" data-i18n="act.exportColl">Изнеси колекцията</button>
-          <button class="btn sm" data-act="clear-tracks" id="clearTracksBtn" data-i18n-title="tracks.clear.title" data-i18n="tracks.clear" title="Махни всички тракове и маршрута от тях. &quot;Отмени&quot; връща всичко." disabled>Нов</button>
+        </div>
         </div>
       </section>
       <section class="card fold" id="dupsCard" data-fold="dups">
