@@ -34,8 +34,8 @@
     return Math.max(300, median(steps) * 8);
   }
 
-  // Изрязаното (t.cuts) и изтритите участъци (t.dels, "Изтрий участъка") - и двете не са живо трасе.
-  function offIv(t) { return (t.cuts || []).concat(t.dels || []); }
+  // Изтритите участъци (t.dels: "Изтрий участъка" и потвърденото изрязване) не са живо трасе.
+  function offIv(t) { return t.dels || []; }
   function liveIntervals(t) {
     var cuts = offIv(t).slice().sort(function (a, b) { return a.a - b.a; });
     var out = [], pos = 0;
@@ -267,9 +267,6 @@
             sections.push(o);
           });
         });
-      });
-      (t.cuts || []).forEach(function (cu) {
-        sections.push({ trackId: t.id, kind: 'cut', a: cu.a, b: cu.b, len: cu.b - cu.a, key: t.id + ':cut:' + Math.round(cu.a) });
       });
       // Изтритият участък не се чертае и не се брои - стои само за да го знаят проверките.
       (t.dels || []).forEach(function (de) {
@@ -695,7 +692,7 @@
   }
   function nearestOnTrack(t, lat, lon) { prep(t); return nearestOn(t.pts, t._cum, lat, lon); }
 
-  // Каква част от [a,b] на трака е под дубликат или изрязване.
+  // Каква част от [a,b] на трака е под дубликат или изтрит участък.
   function invalidShare(item, analysis) {
     var secs = analysis.byTrack[item.trackId];
     if (!secs) return { share: 1, why: 'тракът липсва' };
@@ -703,9 +700,9 @@
     var dupL = 0, cutL = 0;
     secs.forEach(function (s) {
       if (s.kind === 'dup') dupL += overlap(a, b, s.a, s.b);
-      if (s.kind === 'cut' || s.kind === 'del') cutL += overlap(a, b, s.a, s.b);
+      if (s.kind === 'del') cutL += overlap(a, b, s.a, s.b);
     });
-    // Изрязване, което засяга частта, я маркира винаги; дубликат - ако покрива осезаема част от нея.
+    // Изтрит участък, който засяга частта, я маркира винаги; дубликат - ако покрива осезаема част от нея.
     var bad = cutL > 20 || dupL > Math.max(100, 0.2 * len);
     return { bad: bad, share: (dupL + cutL) / len, why: cutL > 20 ? 'изрязана' : 'дубликат' };
   }
@@ -891,6 +888,20 @@
       });
     });
     return out;
+  }
+
+  /* До 1.3.2 изрязаното стоеше отделно (t.cuts) и се връщаше от списък. Сега изрязването маха
+     завинаги: старите изрезки минават в изтритите участъци, а частите на маршрутите губят отсечката. */
+  function cutsToDels(tracks, routes) {
+    tracks.forEach(function (t) {
+      var cs = (t.cuts || []).filter(function (c) { return c && isFinite(c.a) && isFinite(c.b) && c.b > c.a; });
+      delete t.cuts;
+      if (!cs.length) return;
+      t.dels = mergeIv((t.dels || []).concat(cs.map(function (c) { return { a: c.a, b: c.b }; })));
+      (routes || []).forEach(function (r) {
+        cs.forEach(function (c) { r.items = trimItems(r.items || [], t.id, c.a, c.b); });
+      });
+    });
   }
 
   var PROBE = 80; // на толкова метра след точката се сравнява накъде тръгва маршрутът
@@ -1090,7 +1101,7 @@
     routeForks: routeForks, switchFork: switchFork, branchProbe: branchProbe,
     redundantJunctions: redundantJunctions, nearJunctions: nearJunctions, dupCluster: dupCluster, dropJunction: dropJunction, junctionPlace: junctionPlace, junctionAt: junctionAt,
     DROP_R: DROP_R, NEAR_J: NEAR_J,
-    mergeIv: mergeIv, trimItems: trimItems, walkGaps: walkGaps, WALK_GAP: WALK_GAP, smoothWalk: smoothWalk, SMOOTH_M: SMOOTH_M,
+    mergeIv: mergeIv, trimItems: trimItems, cutsToDels: cutsToDels, walkGaps: walkGaps, WALK_GAP: WALK_GAP, smoothWalk: smoothWalk, SMOOTH_M: SMOOTH_M,
     joinTol: function (tol) { return Math.max(ROUTE_GAP, 1.5 * (tol || 20)); }
   };
 })();

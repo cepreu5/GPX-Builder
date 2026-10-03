@@ -47,11 +47,12 @@ assert.ok(r2.dups.every(function (s) { return !('kept' in s); }), 'дублик�
 assert.ok(r2.parts.every(function (s) { return s.kind === 'part'; }), 'дубликат не влиза в частите');
 assert.strictEqual(r2.byTrack.B[0].kind, 'dup');
 assert.ok(Core.invalidShare({ trackId: 'B', a: d.a, b: d.b }, r2).bad, 'част върху дубликат е невалидна');
-// Изрязване.
-A.cuts = [{ a: 0, b: 1000 }];
+// Изрязване (от 1.3.2 - изтрит участък, t.dels).
+A.dels = [{ a: 0, b: 1000 }];
 var r3 = decided([A, B, C], 20, []);
 console.log('A cut', kinds('A').length, r3.byTrack.A.map(function (s) { return s.kind + ':' + Math.round(s.a); }));
-assert.strictEqual(r3.byTrack.A[0].kind, 'cut'); assert.strictEqual(Math.round(r3.byTrack.A[1].a), 1000);
+assert.strictEqual(r3.byTrack.A[0].kind, 'del'); assert.strictEqual(Math.round(r3.byTrack.A[1].a), 1000);
+delete A.dels;
 // Връщане по същия път в същия трак.
 var out = line(42.6, 24.7, 42.6, 24.72, 80), back = line(42.60005, 24.72, 42.60005, 24.70, 80);
 var S = { id: 'S', pts: out.concat(back) };
@@ -604,4 +605,32 @@ console.log('общ участък OK');
     });
   });
   console.log('1.3.1 съседни пръстени и куп дубликати: OK');
+})();
+
+// 1.3.2: изрязването маха завинаги - няма t.cuts и раздел "cut"; старите изрезки минават в t.dels.
+(function () {
+  var X = { id: 'X', pts: line(42.5, 24.70, 42.5, 24.76, 300) };
+  X.cuts = [{ a: 1000, b: 1500 }];
+  var ra = Core.analyze([X], 20);
+  assert.ok(!ra.byTrack.X.some(function (s) { return s.kind === 'cut'; }), 'анализът не познава t.cuts');
+  assert.ok(ra.parts.some(function (s) { return Core.overlap(s.a, s.b, 1000, 1500) > 0; }), 't.cuts вече не маха нищо само по себе си');
+  X.dels = [{ a: 1400, b: 2000 }];
+  var routes = [
+    { id: 'r1', items: [{ type: 'part', trackId: 'X', a: 0, b: 3000 }] },
+    { id: 'r2', items: [{ type: 'part', trackId: 'X', a: 3000, b: 4000 }, { type: 'link', pts: [[42.5, 24.7], [42.5, 24.71]] }] }
+  ];
+  Core.cutsToDels([X], routes);
+  assert.ok(!('cuts' in X), 'полето cuts пада');
+  assert.deepStrictEqual(X.dels, [{ a: 1000, b: 2000 }], 'изрезката се слива с изтритото');
+  assert.deepStrictEqual(routes[0].items.map(function (it) { return [it.a, it.b]; }), [[0, 1000], [1500, 3000]], 'маршрутът губи изрязаната отсечка');
+  assert.strictEqual(routes[1].items.length, 2, 'маршрут без застъпване не се пипа');
+  var rb = Core.analyze([X], 20);
+  assert.ok(rb.byTrack.X.some(function (s) { return s.kind === 'del' && s.a === 1000 && s.b === 2000; }), 'старото изрязано е изтрит участък');
+  assert.ok(!rb.parts.some(function (s) { return Core.overlap(s.a, s.b, 1000, 2000) > 0; }), 'никоя част не минава през него');
+  var inv = Core.invalidShare({ trackId: 'X', a: 900, b: 1200 }, rb);
+  assert.ok(inv.bad, 'част през изтритото е невалидна');
+  var Y = { id: 'Y', pts: X.pts, cuts: [], dels: [] };
+  Core.cutsToDels([Y], routes);
+  assert.ok(!('cuts' in Y) && Y.dels.length === 0, 'празно cuts не прави нищо');
+  console.log('1.3.2 изрязването маха завинаги (t.cuts -> t.dels): OK');
 })();

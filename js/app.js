@@ -78,7 +78,7 @@
   function plainTrack(t) {
     return {
       id: t.id, name: t.name, title: t.title, color: t.color, pts: t.pts, breaks: t.breaks || [],
-      wpts: t.wpts || [], cuts: t.cuts || [], dels: t.dels || [], skips: t.skips || [], openGaps: t.openGaps || [], visible: t.visible !== false, created: t.created, walk: !!t.walk
+      wpts: t.wpts || [], dels: t.dels || [], skips: t.skips || [], openGaps: t.openGaps || [], visible: t.visible !== false, created: t.created, walk: !!t.walk
     };
   }
   function snapshotState() {
@@ -119,6 +119,7 @@
     S.dropJ = (S.dropJ || []).concat(places(data.dropJ));
     S.keptJ = (S.keptJ || []).concat(places(data.keptJ));
     S.tracks.forEach(function (t) { delete t._cum; });
+    Core.cutsToDels(S.tracks, S.routes);
     S.routes.forEach(function (r) { r.walks = r.walks || []; r.items = r.items || []; r.forks = r.forks || []; r.openGaps = r.openGaps || []; });
     // Записите на изминатото до 1.0.6 носеха края на частта като брой точки, а не като метри по трака.
     S.routes.forEach(function (r) {
@@ -138,7 +139,6 @@
     }
     ui.undo.push(JSON.stringify({
       rid: S.curId, items: cur().items,
-      cuts: S.tracks.map(function (t) { return [t.id, t.cuts || []]; }),
       skips: S.tracks.map(function (t) { return [t.id, t.skips || [], t.openGaps || []]; }),
       dels: S.tracks.map(function (t) { return [t.id, t.dels || []]; }), dropJ: S.dropJ, keptJ: S.keptJ,
       forks: cur().forks || [], openGaps: cur().openGaps || [], smooth: cur().smooth || null
@@ -156,13 +156,12 @@
       S.tracks = s.tracks;
       if (r) S.routes[S.routes.indexOf(r)] = s.route; else S.routes.unshift(s.route);
       S.curId = s.rid;
-      s.cuts = []; r = null;
+      r = null;
     }
     if (r) {
       r.items = s.items; r.forks = s.forks || []; r.openGaps = s.openGaps || []; S.curId = r.id;
       if (s.smooth) r.smooth = s.smooth; else delete r.smooth;
     }
-    s.cuts.forEach(function (c) { var t = track(c[0]); if (t) t.cuts = c[1]; });
     (s.skips || []).forEach(function (c) { var t = track(c[0]); if (t) { t.skips = c[1]; t.openGaps = c[2]; } });
     (s.dels || []).forEach(function (c) { var t = track(c[0]); if (t) t.dels = c[1]; });
     if (s.dropJ) S.dropJ = s.dropJ;
@@ -536,8 +535,7 @@
         if (s.kind === 'part' || s.kind === 'dup' || s.kind === 'del') return;
         var pts = Core.slice(t, s.a, s.b);
         path(ctx, pr, pts);
-        if (s.kind === 'cut') { stroke(ctx, C.casing, 7); stroke(ctx, C.cut, 5, [2, 5]); }
-        else if (s.kind === 'gap') { stroke(ctx, C.gap, 2, [3, 5]); }
+        if (s.kind === 'gap') { stroke(ctx, C.gap, 2, [3, 5]); }
       });
       walkGapLines(t, ui.drawn[t.id] || []).forEach(function (pts) {
         path(ctx, pr, pts); stroke(ctx, C.casing, 4.5); stroke(ctx, C['walk-gap'], 2.2, [6, 5]);
@@ -821,10 +819,7 @@
       var sec = secs.filter(function (s) { return s.kind !== 'gap' && n.d >= s.a && n.d <= s.b; })[0];
       // Махнат дубликат не се хваща: кликът върху него не прави нищо.
       if (sec && (sec.kind === 'dup' || sec.kind === 'del')) best = { kind: 'none', d: nt.d };
-      else if (sec) {
-        if (sec.kind === 'cut') best = { kind: 'cut', sec: sec, d: nt.d };
-        else best = { kind: 'part', sec: sec, d: nt.d };
-      }
+      else if (sec) best = { kind: 'part', sec: sec, d: nt.d };
     }
     return best;
   }
@@ -849,7 +844,6 @@
         U.esc(T('tip.juncMenu'));
     }
     if (h.kind === 'vertex') return U.esc(T('tip.vertex'));
-    if (h.kind === 'cut') return U.esc(T('tip.cut'));
     return '';
   }
   var hoverRaf = null, hoverP = null;
@@ -1129,7 +1123,6 @@
     if (h.kind === 'item') removeItem(h.idx);
     else if (h.kind === 'gap') closeGap(h.gap);
     else if (h.kind === 'vertex') showPointMenu(h);
-    else if (h.kind === 'cut') toast(T('msg.isCut'));
   }
   function toggleBar() { setBar(!document.body.classList.contains('bar-hidden')); }
   // Скрива/връща горната лента. Кръглата "Лента" горе вляво стои винаги: стрелкичката сочи нагоре при отворена
@@ -1192,8 +1185,13 @@
     if (!ui.cut || ui.cut.b == null) return;
     var t = track(ui.cut.trackId);
     pushUndo();
-    t.cuts = (t.cuts || []).concat([{ a: Math.min(ui.cut.a, ui.cut.b), b: Math.max(ui.cut.a, ui.cut.b) }]);
-    toast(T('msg.cutDone', { len: U.km(Math.abs(ui.cut.b - ui.cut.a)), name: t.name }));
+    // Като "Изтрий участъка": отсечката пада от картата, от дължината на трака и от маршрута.
+    var a = Math.min(ui.cut.a, ui.cut.b), b = Math.max(ui.cut.a, ui.cut.b), r = cur();
+    t.dels = Core.mergeIv((t.dels || []).concat([{ a: a, b: b }]));
+    r.items = Core.trimItems(r.items, t.id, a, b);
+    r.modified = Date.now();
+    ui.drawTarget = null;
+    toast(T('msg.cutDone', { len: U.km(b - a), name: t.name }), false, 5000);
     ui.cut = null;
     updateCutBox();
     analyzeNow();
@@ -1425,7 +1423,6 @@
     renderPoints();
     renderTracks();
     renderDups();
-    renderCuts();
     renderRoutes();
     renderPicCard();
     renderRingsRow();
@@ -1551,7 +1548,6 @@
     $('#clearTracksBtn').disabled = !S.tracks.length && !cur().items.length;
     $('#tracksList').innerHTML = S.tracks.map(function (t) {
       Core.prep(t);
-      var cutL = (t.cuts || []).reduce(function (s, c) { return s + (c.b - c.a); }, 0);
       // Изтритите участъци не се броят в дължината; участъците - колко са след разрязването.
       var delL = Core.mergeIv(t.dels || []).reduce(function (s, c) { return s + (c.b - c.a); }, 0);
       var secs = t.visible !== false && A.byTrack[t.id], np = secs ? secs.filter(function (x) { return x.kind === 'part'; }).length : 0;
@@ -1559,7 +1555,6 @@
         '<span class="sw" style="background:' + trackColor(t) + '"></span>' +
         '<span class="t" title="' + U.esc(t.title || t.name) + '">' + U.esc(t.name) + (t.walk ? ' <small>' + TE('tr.walk') + '</small>' : '') +
         (secs ? ' <small class="tr-parts">· ' + U.esc(T.n('tr.parts', np)) + '</small>' : '') +
-        (cutL ? ' <small>· ' + TE('tr.cut', { len: U.km(cutL) }) + '</small>' : '') +
         (delL ? ' <small>· ' + TE('tr.dels', { len: U.km(delL) }) + '</small>' : '') + '</span>' +
         '<span class="v">' + U.km(t.len - delL) +
         ' <label class="chk" title="' + TE('tr.vis') + '"><input type="checkbox" data-tr="vis" ' + (t.visible === false ? '' : 'checked') + '></label>' +
@@ -1584,19 +1579,6 @@
     if (np) cnt.push(T('dups.toDecide', { n: np }));
     if (n) cnt.push(T.n('dups.skippedN', n));
     $('#dupsCount').textContent = cnt.length ? cnt.join(' · ') : '(0)';
-  }
-
-  function renderCuts() {
-    var rows = [];
-    S.tracks.forEach(function (t) {
-      (t.cuts || []).forEach(function (c, ci) {
-        rows.push('<li data-track="' + t.id + '" data-ci="' + ci + '"><span class="i">×</span><span class="t">' + U.esc(t.name) +
-          ' <small>· ' + kmRange(c.a, c.b) + '</small></span><span class="v">' + U.km(c.b - c.a) +
-          ' <button class="btn sm" data-cut="back">' + TE('cut.restore') + '</button></span></li>');
-      });
-    });
-    $('#cutsList').innerHTML = rows.join('');
-    $('#cutsCount').textContent = '(' + rows.length + ')';
   }
 
   function renderRoutes() {
@@ -1779,7 +1761,7 @@
           }
           var res = GPX.parse(trimmed, f.name);
           res.tracks.forEach(function (t) {
-            var tr = { id: U.uid(), name: t.name, title: t.title, color: nextColor(), pts: t.pts, breaks: t.breaks, wpts: t.wpts, cuts: [], visible: true, created: Date.now() };
+            var tr = { id: U.uid(), name: t.name, title: t.title, color: nextColor(), pts: t.pts, breaks: t.breaks, wpts: t.wpts, visible: true, created: Date.now() };
             Core.prep(tr);
             S.tracks.push(tr);
             added.push(tr);
@@ -2235,7 +2217,7 @@
   function saveWalk(w) {
     var rec = w.pts, when = w.t || Date.now();
     var wpts = (w.wpts || []).map(function (x) { return { lat: x.lat, lon: x.lon, ele: x.ele, time: x.time, name: x.name }; });
-    var t = { id: U.uid(), name: T('walk.trackName', { d: U.dateShort(when) }), title: T('walk.trackName', { d: U.date(when) }), color: nextColor(), pts: rec, breaks: [], wpts: wpts, cuts: [], visible: true, created: Date.now(), walk: true };
+    var t = { id: U.uid(), name: T('walk.trackName', { d: U.dateShort(when) }), title: T('walk.trackName', { d: U.date(when) }), color: nextColor(), pts: rec, breaks: [], wpts: wpts, visible: true, created: Date.now(), walk: true };
     Core.prep(t);
     S.tracks.push(t);
     S.routes.forEach(function (r) { if (r.id === w.routeId) r.walks = (r.walks || []).concat([t.id]); });
@@ -2994,17 +2976,6 @@
       if ((ui.hl && ui.hl.track) !== id) { ui.hl = id ? { track: id } : null; map.redraw(); }
     });
     tl.addEventListener('mouseleave', function () { ui.hl = null; map.redraw(); });
-
-    // Изрязано.
-    $('#cutsList').addEventListener('click', function (e) {
-      var b = e.target.closest('[data-cut="back"]'); if (!b) return;
-      var li = b.closest('li'), t = track(li.dataset.track);
-      if (!t) return;
-      pushUndo();
-      t.cuts = t.cuts.filter(function (c, i) { return i !== +li.dataset.ci; });
-      toast(T('msg.cutRestored'));
-      analyzeNow();
-    });
 
     // Маршрути.
     $('#routesBody').addEventListener('click', function (e) {

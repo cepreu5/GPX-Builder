@@ -51,7 +51,7 @@
   <div class="bar-row tools" id="tools">
     <div class="seg" role="group" data-i18n-aria="mode.aria" aria-label="Режим">
       <button data-mode="select" class="on" data-i18n="mode.select" data-i18n-title="mode.select.title" title="Клик върху сегмент го слага в маршрута">Избор</button>
-      <button data-mode="cut" data-i18n="mode.cut" data-i18n-title="mode.cut.title" title="Две точки по трака изрязват част от него">Изрязване</button>
+      <button data-mode="cut" data-i18n="mode.cut" data-i18n-title="mode.cut.title" title="Две точки по трака махат част от него. „Отмени“ я връща.">Изрязване</button>
       <button data-mode="add" data-i18n="mode.add" data-i18n-title="mode.add.title" title="Клик на картата слага точка">Добавяне</button>
       <button data-mode="move" data-i18n="mode.move" data-i18n-title="mode.move.title" title="Влачи точка">Местене</button>
       <button data-mode="remove" data-i18n="mode.remove" data-i18n-title="mode.remove.title" title="Клик върху точка я маха">Махане</button>
@@ -194,7 +194,7 @@
       <button class="btn follow-btn" data-act="follow" aria-pressed="false" data-i18n="follow.start" data-i18n-aria="follow.start.aria" aria-label="Следене - пусни следенето по GPS">Следене</button>
       <label class="tol"><span data-i18n="bar.tol">Отклонение</span> <input type="text" class="tolInput num" inputmode="numeric" pattern="[0-9]*" maxlength="3" value="20" autocomplete="off" data-i18n-aria="tol.aria" data-i18n-title="tol.title" aria-label="Максимално допустимо отклонение в метри" title="Отклонение в метри, от 0 до 999. Enter прилага."> <span class="tol-unit" data-i18n="unit.m">м</span></label>
     </div>
-    <p class="hint" data-i18n="hint">Клик върху сегмент го слага в маршрута като следваща част. Пръстенът е точка на прекъсване: клик върху клона, по който маршрутът да продължи, сменя посоката там. Дублиращите се участъци са извън маршрута, а общата отсечка между две части се минава веднъж. Посочването на ред в списъка светва същия сегмент на картата.</p>
+    <p class="hint" data-i18n="hint">Клик върху сегмент отваря меню: „Добави в маршрута“ го слага като следваща част, „Изтрий участъка“ го маха от картата, от трака и от маршрута. Пръстенът е точка на разклонение: клик върху него отваря менюто му - „Продължи по“ сменя посоката там, „Изтрий разклонението“ слива двете парчета на трака. Дублиращите се участъци са извън маршрута, а общата отсечка между две части се минава веднъж. Режимът „Изрязване“ маха с две точки по линията произволна част от трака - завинаги, както „Изтрий участъка“; „Отмени“ я връща. Посочването на ред в списъка светва същия сегмент на картата.</p>
   </section>
 
   <div class="cols">
@@ -242,13 +242,6 @@
         <p class="muted small" id="dupsPendingNote" data-i18n="dups.pendNote" hidden>Нищо още не е махнато - числата ги броят, а на картата стоят и двете линии. Всеки маркер се решава сам.</p>
         <p class="dups-sum small" id="dupsSkipped"></p>
         <p class="muted small"><span data-i18n="dups.note1">Участък, който минава по-близо от </span><b class="tolVal"></b><span data-i18n="dups.note2"> до вече приетото трасе, получава маркер × по средата си. Клик върху маркера го маха от маршрута и от картата; "Отмени" го връща. Дупка, по-къса от отклонението, се затваря сама. Отклонението се сменя с полето "Отклонение" в лентата.</span></p>
-        </div>
-      </section>
-      <section class="card fold" id="cutsCard" data-fold="cuts">
-        <h2><button type="button" class="fold-t" aria-expanded="false" aria-controls="cutsBody"><span class="chev" aria-hidden="true">&#9656;</span><span data-i18n="cuts.h">Изрязано от тракове</span> <span class="num muted" id="cutsCount">(0)</span></button></h2>
-        <div class="fold-b" id="cutsBody" hidden>
-        <ul id="cutsList" class="rows"></ul>
-        <p class="muted small" data-i18n="cuts.note">Изрязаното не се трие от файла: тракът остава цял и изрязването се връща винаги.</p>
         </div>
       </section>
     </div>

@@ -276,10 +276,10 @@ function barFits() {
   const cutText = await page.textContent('#cutText');
   check(/^Изрязване: км 0 - \d/.test(cutText), 'изрязване: ' + cutText);
   await page.click('[data-act="cut-ok"]');
-  check(await page.evaluate(() => __gpxk.S.tracks[0].cuts.length === 1 && __gpxk.A.byTrack[__gpxk.S.tracks[0].id].some(s => s.kind === 'cut')), 'изрязването е потвърдено и отпада от трака');
-  check(await page.evaluate(() => __gpxk.G.items.some(g => g.bad)), 'частта в маршрута, която е изрязана, е маркирана като невалидна');
+  check(await page.evaluate(() => { const t = __gpxk.S.tracks[0]; return !('cuts' in t) && (t.dels || []).length === 1 && __gpxk.A.byTrack[t.id].some(s => s.kind === 'del') && !__gpxk.A.byTrack[t.id].some(s => s.kind === 'cut'); }), 'изрязването е потвърдено и пада от трака завинаги (t.dels)');
+  check(await page.evaluate(() => !__gpxk.G.items.some(g => g.bad)), 'частта в маршрута губи изрязаното - не остава невалидна част');
   await page.click('[data-act="undo"]');
-  check(await page.evaluate(() => __gpxk.S.tracks[0].cuts.length === 0), '"Отмени" връща изрязването');
+  check(await page.evaluate(() => (__gpxk.S.tracks[0].dels || []).length === 0), '"Отмени" връща изрязването');
 
   // Чертане: точка в края на маршрута.
   await page.click('[data-mode="add"]');
@@ -1107,9 +1107,9 @@ function barFits() {
   // Версия: в дъното и в името на кеша от sw.js.
   const verText = (await p5.textContent('#appVersion')).trim();
   const ver = (verText.match(/^\d+\.\d+\.\d+/) || [''])[0];
-  check(ver === '1.3.1' && await p5.isVisible('#appVersion') && /^Версия 1\.3\.1 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
+  check(ver === '1.3.2' && await p5.isVisible('#appVersion') && /^Версия 1\.3\.2 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
   const swCache = (() => { const ctx = { importScripts: f => vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx), addEventListener: () => {} }; ctx.self = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8') + ';this.__c = CACHE;', ctx); return ctx.__c; })();
-  check(swCache === 'gpxk-v30-1.3.1' && swCache === 'gpxk-v30-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
+  check(swCache === 'gpxk-v31-1.3.2' && swCache === 'gpxk-v31-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
   const liveCaches = await p5.evaluate(() => navigator.serviceWorker.ready.then(() => new Promise(r => { const t0 = Date.now(); (function poll() { caches.keys().then(k => (k.length || Date.now() - t0 > 8000) ? r(k) : setTimeout(poll, 100)); })(); })));
   check(liveCaches.length === 1 && liveCaches[0] === swCache, 'в браузъра работникът е създал кеш ' + JSON.stringify(liveCaches));
   // Бутоните са неактивни, когато няма какво да изчистят.
@@ -1120,13 +1120,13 @@ function barFits() {
   let b5 = await btns5();
   check(b5.nov && b5.izt && b5.novIn && b5.iztIn && b5.novT === 'Нов' && b5.iztT === 'Изтрий' && !b5.danger, 'празно: "Нов" (до "Добави тракове" в заглавието на траковете) и "Изтрий" (в заглавието на частите) са неактивни ' + JSON.stringify(b5));
   const heads = await p5.evaluate(() => Array.from(document.querySelectorAll('.cols h2')).map(h => h.querySelector('[data-i18n]').textContent.trim()));
-  check(JSON.stringify(heads) === JSON.stringify(['Части в маршрута', 'Точки', 'Тракове-източници', 'Дубликати', 'Изрязано от тракове']), 'заглавията на панелите: ' + JSON.stringify(heads));
+  check(JSON.stringify(heads) === JSON.stringify(['Части в маршрута', 'Точки', 'Тракове-източници', 'Дубликати']), 'заглавията на панелите (1.3.2: без „Изрязано от тракове“): ' + JSON.stringify(heads));
   // Свити в началото.
-  const FOLDS = [['#ptsCard', '#ptsCount'], ['#dupsCard', '#dupsCount'], ['#cutsCard', '#cutsCount'], ['#partsCard', '#partsCount'], ['#tracksCard', '#tracksCount']];
+  const FOLDS = [['#ptsCard', '#ptsCount'], ['#dupsCard', '#dupsCount'], ['#partsCard', '#partsCount'], ['#tracksCard', '#tracksCount']];
   const foldSt = () => p5.evaluate(F => F.map(([c, n]) => { const card = document.querySelector(c), b = card.querySelector('.fold-b'), t = card.querySelector('.fold-t'), cnt = document.querySelector(n);
     return { open: !b.hidden && b.getBoundingClientRect().height > 0, aria: t.getAttribute('aria-expanded'), cnt: cnt.textContent, cntShown: cnt.getBoundingClientRect().width > 0, inTitle: t.contains(cnt) }; }), FOLDS);
   let f5 = await foldSt();
-  check(f5.every(f => !f.open && f.aria === 'false'), 'петте панела (и „Части в маршрута“, „Тракове-източници“ от 1.3.1) са свити при отваряне ' + JSON.stringify(f5.map(f => f.open)));
+  check(f5.every(f => !f.open && f.aria === 'false'), 'четирите панела (и „Части в маршрута“, „Тракове-източници“ от 1.3.1) са свити при отваряне ' + JSON.stringify(f5.map(f => f.open)));
   // Тракове и част в маршрута.
   const fx5 = f => path.join(__dirname, 'fixtures', f);
   await p5.click('#empty [data-act="add-tracks"]');
@@ -1135,20 +1135,20 @@ function barFits() {
   await p5.keyboard.press('Escape');
   await p5.evaluate(() => { const S = __gpxk.S, A = __gpxk.A, r = S.routes.find(x => x.id === S.curId);
     const a = A.parts.filter(p => p.trackId === S.tracks[0].id)[0], c = A.parts.filter(p => p.trackId === S.tracks[2].id)[0];
-    S.tracks[2].cuts = [{ a: 0, b: 50 }];
+    S.tracks[2].dels = [{ a: 0, b: 50 }];
     r.items = [{ type: 'part', trackId: a.trackId, a: a.a, b: a.b, rev: false }, { type: 'draw', pts: [{ lat: 42.51, lon: 24.70, name: 'Чешма' }] }];
     window.__gpxk.refresh(); });
-  await p5.waitForFunction(() => document.querySelector('#cutsCount').textContent === '(1)');
+  await p5.waitForFunction(() => /изтрити/.test(document.querySelectorAll('#tracksList li')[2].textContent));
   const saved5 = async () => { for (let i = 0; i < 100; i++) { if (await p5.evaluate(() => U.DB.get('collection').then(c => { const r = c && c.routes.find(x => x.id === c.curId); return !!r && r.items.length === 2 && c.tracks.length === 3; }))) return true; await p5.waitForTimeout(100); } return false; };
-  check(await saved5(), 'частите и изрезката са записани в браузъра');
+  check(await saved5(), 'частите и изтритото са записани в браузъра');
   f5 = await foldSt();
-  check(f5.every(f => !f.open && f.cntShown && f.inTitle) && f5[0].cnt === '(1)' && f5[1].cnt === '1 за решение' && f5[2].cnt === '(1)' && /^\(\d+\)$/.test(f5[3].cnt) && f5[3].cnt !== '(0)' && f5[4].cnt === '(3)', 'свитите заглавия носят броячите: ' + JSON.stringify(f5.map(f => f.cnt)));
+  check(f5.every(f => !f.open && f.cntShown && f.inTitle) && f5[0].cnt === '(1)' && f5[1].cnt === '1 за решение' && /^\(\d+\)$/.test(f5[2].cnt) && f5[2].cnt !== '(0)' && f5[3].cnt === '(3)', 'свитите заглавия носят броячите: ' + JSON.stringify(f5.map(f => f.cnt)));
   // Клик върху свито заглавие само отваря - не пипа картата и не решава нищо.
   const mapSt = () => p5.evaluate(() => JSON.stringify([__gpxk.map.getView(), __gpxk.A.pend.length, __gpxk.A.dups.length, __gpxk.S.routes.find(x => x.id === __gpxk.S.curId).items.length, __gpxk.ui.undo.length]));
   const m0 = await mapSt();
   for (const [c] of FOLDS) await p5.click(c + ' .fold-t');
   f5 = await foldSt();
-  check(f5.every(f => f.open && f.aria === 'true'), 'клик върху заглавието отваря всеки от петте панела ' + JSON.stringify(f5.map(f => f.open)));
+  check(f5.every(f => f.open && f.aria === 'true'), 'клик върху заглавието отваря всеки от четирите панела ' + JSON.stringify(f5.map(f => f.open)));
   check(await mapSt() === m0, 'отварянето не пипа картата, дубликатите и маршрута');
   await p5.click('#ptsCard .fold-t');
   f5 = await foldSt();
@@ -1157,7 +1157,7 @@ function barFits() {
   await p5.waitForFunction(() => window.__gpxk && window.__gpxk.ready && __gpxk.S.tracks.length === 3);
   f5 = await foldSt();
   check(!f5[0].open && f5[1].open && f5[2].open && f5[0].cnt === '(1)', 'след презареждане всеки панел е както е оставен ' + JSON.stringify(f5.map(f => f.open)));
-  await p5.click('#dupsCard .fold-t'); await p5.click('#cutsCard .fold-t'); await p5.click('#partsCard .fold-t'); await p5.click('#tracksCard .fold-t');
+  await p5.click('#dupsCard .fold-t'); await p5.click('#partsCard .fold-t'); await p5.click('#tracksCard .fold-t');
   await p5.reload();
   await p5.waitForFunction(() => window.__gpxk && window.__gpxk.ready && __gpxk.S.tracks.length === 3);
   f5 = await foldSt();
@@ -1167,10 +1167,10 @@ function barFits() {
   const imp5 = await p5.evaluate(() => document.querySelector('#dlgImport').open);
   await p5.keyboard.press('Escape');
   f5 = await foldSt();
-  check(imp5 && !f5[4].open && f5[4].aria === 'false', '1.3.1: „Добави тракове“ в заглавието на свитите тракове отваря внасянето, панелът остава свит');
+  check(imp5 && !f5[3].open && f5[3].aria === 'false', '1.3.1: „Добави тракове“ в заглавието на свитите тракове отваря внасянето, панелът остава свит');
   // "Изтрий": махат се частите, траковете остават; "Отмени" ги връща.
   const rs5 = () => p5.evaluate(() => { const S = __gpxk.S, r = S.routes.find(x => x.id === S.curId);
-    return { tracks: S.tracks.map(t => t.id + ':' + t.pts.length + ':' + JSON.stringify(t.cuts || [])).join('|'), nTracks: S.tracks.length, items: JSON.stringify(r.items), n: r.items.length,
+    return { tracks: S.tracks.map(t => t.id + ':' + t.pts.length + ':' + JSON.stringify(t.dels || [])).join('|'), nTracks: S.tracks.length, items: JSON.stringify(r.items), n: r.items.length,
       parts: document.querySelector('#partsCount').textContent, empty: !document.querySelector('#empty').hidden, routes: S.routes.length }; });
   const r0 = await rs5();
   b5 = await btns5();
@@ -1179,7 +1179,7 @@ function barFits() {
   const us0 = await undoSt();
   check(us0.dis && us0.op < 0.6 && us0.n === 0, '"Отмени" горе вдясно е избледняло при празна история: ' + JSON.stringify(us0));
   await p5.click('#clearPartsBtn');
-  check((await foldSt()).slice(3).every(f => !f.open), '1.3.1: „Изтрий“ се цъка при свит панел „Части в маршрута“');
+  check((await foldSt()).slice(2).every(f => !f.open), '1.3.1: „Изтрий“ се цъка при свит панел „Части в маршрута“');
   const us1 = await undoSt();
   check(!us1.dis && us1.op === 1 && us1.n === 1, 'след действие "Отмени" е активно и плътно: ' + JSON.stringify(us1));
   let r1 = await rs5(); b5 = await btns5();
@@ -1189,14 +1189,14 @@ function barFits() {
   check(r1.items === r0.items && r1.tracks === r0.tracks, '"Отмени" връща частите');
   // "Нов": махат се траковете и маршрутът; "Отмени" връща всичко.
   await p5.click('#clearTracksBtn');
-  check((await foldSt())[4].open === false, '1.3.1: „Нов“ се цъка при свит панел „Тракове-източници“');
+  check((await foldSt())[3].open === false, '1.3.1: „Нов“ се цъка при свит панел „Тракове-източници“');
   r1 = await rs5(); b5 = await btns5();
   check(r1.nTracks === 0 && r1.n === 0 && r1.empty && b5.nov && b5.izt && r1.routes === r0.routes, '"Нов": няма тракове, няма части, подканата се вижда, записаните маршрути остават');
   check(await p5.evaluate(() => __gpxk.A.parts.length === 0 && __gpxk.A.pend.length === 0 && __gpxk.G.pts.length === 0), '"Нов": картата е празна');
   await p5.click('#undoBtn');
   await p5.waitForFunction(() => __gpxk.S.tracks.length === 3);
   r1 = await rs5();
-  check(r1.tracks === r0.tracks && r1.items === r0.items && !r1.empty && await p5.evaluate(() => __gpxk.A.pend.length === 1 && document.querySelector('#cutsCount').textContent === '(1)'), '"Отмени" връща траковете (с изрезките) и маршрута');
+  check(r1.tracks === r0.tracks && r1.items === r0.items && !r1.empty && await p5.evaluate(() => __gpxk.A.pend.length === 1 && (__gpxk.S.tracks[2].dels || []).length === 1), '"Отмени" връща траковете (с изтритото) и маршрута');
   await saved5();
   await p5.reload();
   await p5.waitForFunction(() => window.__gpxk && window.__gpxk.ready);
@@ -2500,6 +2500,69 @@ function barFits() {
     check(!(await menuState()).open, '1.3.0: Escape затваря менюто');
     check(!er.length, '1.3.0: разклонения - конзолата е чиста' + (er.length ? ': ' + er.join(' | ') : ''));
     await cr.close();
+  }
+
+  // ---- 1.3.2: без „Изрязано от тракове“ - потвърденото изрязване маха завинаги (t.dels), „Отмени“ го връща ----
+  {
+    const kFile = writeGpx('KX', line(42.5, 24.70, 42.5, 24.76, 300));
+    const sizes = [[360, 800], [560, 800], [760, 900], [390, 844]];
+    for (const [W, H] of sizes) {
+      const tag = '1.3.2, ' + W + 'x' + H + ': ';
+      const ck = await browser.newContext({ viewport: { width: W, height: H } });
+      const pk = await ck.newPage();
+      const ek = [];
+      pk.on('pageerror', e => ek.push('pageerror: ' + e.message));
+      pk.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text()) && !/api\.opentopodata\.org/.test(m.text())) ek.push('console: ' + m.text()); });
+      const kready = () => pk.waitForFunction(() => window.__gpxk && window.__gpxk.ready, null, { timeout: 15000 });
+      await pk.goto(url); await kready();
+      await pk.setInputFiles('#fileInput', [kFile]);
+      await pk.waitForFunction(() => __gpxk.S.tracks.length === 1 && __gpxk.A.parts.length >= 1);
+      await pk.evaluate(() => { const d = document.querySelector('#dlgImport'); if (d.open) d.close(); window.scrollTo(0, 0);
+        const S = __gpxk.S, r = S.routes.find(x => x.id === S.curId);
+        r.items = __gpxk.A.parts.map(p => ({ type: 'part', trackId: p.trackId, a: p.a, b: p.b, rev: false }));
+        __gpxk.refresh(); });
+      const panel = await pk.evaluate(() => ({ card: !!document.querySelector('#cutsCard, #cutsList, #cutsCount'),
+        heads: [...document.querySelectorAll('.cols h2 [data-i18n]')].map(h => h.textContent.trim()),
+        txt: /Изрязано от тракове|върни го от списъка/.test(document.body.innerText + document.documentElement.innerHTML) }));
+      check(!panel.card && !panel.txt && JSON.stringify(panel.heads) === JSON.stringify(['Части в маршрута', 'Точки', 'Тракове-източници', 'Дубликати']), tag + 'панелът „Изрязано от тракове“ го няма: ' + JSON.stringify(panel.heads));
+      await pk.click('[data-mode="cut"]');
+      await pk.waitForFunction(() => Math.abs(__gpxk.map.w - document.querySelector('#map').clientWidth) < 1);
+      const title = await pk.getAttribute('[data-mode="cut"]', 'title');
+      const kp = await pk.evaluate(() => { const t = __gpxk.S.tracks[0]; Core.prep(t); const c = Core.pointAt(t, t.len * 0.35); __gpxk.map.setView(c[0], c[1], 14);
+        return [0.25, 0.45].map(f => { const p = Core.pointAt(t, t.len * f); return __gpxk.map.project(p[0], p[1]); }); });
+      for (const q of kp) await pk.evaluate(q => { const m = __gpxk.map; m.opts.onClick(Object.assign({ x: q.x, y: q.y }, m.unproject(q.x, q.y))); }, q);
+      const box = await pk.evaluate(() => ({ t: document.querySelector('#cutText').textContent, s: document.querySelector('#cutSub').textContent, ok: !document.querySelector('[data-act="cut-ok"]').disabled }));
+      check(title === 'Две точки по трака махат част от него. „Отмени“ я връща.' && /^Изрязване: км 1,\d - 2,\d/.test(box.t) && /^\d+,\d\sкм се махат от трака завинаги\. „Отмени“ ги връща\.$/.test(box.s) && box.ok, tag + 'кутията за изрязване казва, че махането е завинаги: ' + JSON.stringify([title, box]));
+      const before = await pk.evaluate(() => { const r = __gpxk.S.routes.find(x => x.id === __gpxk.S.curId); return { items: JSON.stringify(r.items), len: __gpxk.G.len, partsLen: r.items.reduce((a, it) => a + (it.type === 'part' ? Math.abs(it.b - it.a) : 0), 0) }; });
+      await pk.click('[data-act="cut-ok"]');
+      const st = () => pk.evaluate(() => { const S = __gpxk.S, A = __gpxk.A, t = S.tracks[0], r = S.routes.find(x => x.id === S.curId);
+        return { cuts: 'cuts' in t, dels: JSON.stringify(t.dels || []), d: (t.dels || [])[0] || null, cutSec: A.byTrack[t.id].some(s => s.kind === 'cut'),
+          items: JSON.stringify(r.items), through: r.items.some(it => it.type === 'part' && (t.dels || []).some(d => Core.overlap(Math.min(it.a, it.b), Math.max(it.a, it.b), d.a, d.b) > 1)),
+          bad: __gpxk.G.items.some(g => g.bad), len: __gpxk.G.len, partsLen: r.items.reduce((a, it) => a + (it.type === 'part' ? Math.abs(it.b - it.a) : 0), 0), toast: document.querySelector('#toast').textContent,
+          row: document.querySelector('#tracksList li .t').textContent, card: !!document.querySelector('#cutsCard'), scroll: document.documentElement.scrollWidth <= innerWidth }; });
+      const k1 = await st();
+      check(!k1.cuts && k1.d && k1.d.b - k1.d.a > 900 && !k1.cutSec && !k1.card, tag + 'изрязаното е изтрит участък (t.dels), не изрязване за връщане: ' + k1.dels);
+      check(!k1.through && !k1.bad && k1.items !== before.items && k1.partsLen < before.partsLen - 900, tag + 'частта от маршрута губи отсечката (няма невалидна част): ' + k1.items);
+      check(/^Изрязани \d+,\d\sкм от KX\.gpx - махнати от картата, от трака и от маршрута\. „Отмени“ ги връща\.$/.test(k1.toast), tag + 'съобщението: ' + k1.toast);
+      check(/изтрити \d+,\d\sкм/.test(k1.row) && !/изрязани/.test(k1.row) && k1.scroll, tag + 'редът в „Тракове-източници“ носи само „изтрити“: ' + k1.row);
+      if (W === 390) await pk.screenshot({ path: path.join(OUT, 'cut-132-390.png') });
+      await pk.click('#undoBtn');
+      const k2 = await st();
+      check(k2.dels === '[]' && k2.items === before.items && Math.abs(k2.len - before.len) < 1, tag + '„Отмени“ връща отсечката в трака и в маршрута');
+      if (W === 760) {
+        // Изрязаното, записано от по-стара версия (t.cuts), при отваряне минава в изтритите и не се връща на картата.
+        const dbHasK = async (f, arg) => { for (let i = 0; i < 60; i++) { if (await pk.evaluate(f, arg)) return true; await pk.waitForTimeout(100); } return false; };
+        check(await dbHasK(bi => U.DB.get('collection').then(c => !!c && c.tracks.length === 1 && !(c.tracks[0].dels || []).length && JSON.stringify(c.routes.find(x => x.id === c.curId).items) === bi), before.items), tag + 'отмяната е записана');
+        const old = await pk.evaluate(() => U.DB.get('collection').then(c => { const t = c.tracks[0]; t.cuts = [{ a: 1000, b: 1600 }];
+          const r = c.routes.find(x => x.id === c.curId); return U.DB.set('collection', c).then(() => r.items.length); }));
+        await pk.reload(); await kready();
+        const k3 = await st();
+        check(old >= 1 && !k3.cuts && k3.dels === JSON.stringify([{ a: 1000, b: 1600 }]) && !k3.through && !k3.bad && !k3.cutSec, tag + 'старите изрезки минават в „изтрити“ и частта губи отсечката: ' + JSON.stringify([k3.dels, k3.items]));
+        check(await dbHasK(() => U.DB.get('collection').then(c => !!c && !('cuts' in c.tracks[0]) && (c.tracks[0].dels || []).length === 1)), tag + 'записът вече е без cuts');
+      }
+      check(!ek.length, tag + 'конзолата е чиста' + (ek.length ? ': ' + ek.join(' | ') : ''));
+      await ck.close();
+    }
   }
 
   check(errors.length === 0, 'конзолата е чиста' + (errors.length ? ': ' + errors.join(' | ') : ''));
