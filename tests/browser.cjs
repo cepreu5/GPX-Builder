@@ -115,6 +115,8 @@ function barFits() {
   await page.goto(url);
   await page.waitForFunction(() => window.__gpxk && window.__gpxk.ready);
   check(await page.isVisible('#empty'), 'празна колекция: подканата "Тук ще се появи маршрутът" се вижда');
+  const nm0 = await page.evaluate(() => ({ input: document.querySelector('#routeName').value, title: document.title }));
+  check(nm0.input === 'Нов маршрут' && nm0.title === 'Нов маршрут · CX Tracks', 'на български новият маршрут е „Нов маршрут“ в полето и в заглавието: ' + JSON.stringify(nm0));
   const v0 = await page.evaluate(() => window.__gpxk.map.getView());
   check(Math.abs(v0.lat - 42.5006) < 0.01 && Math.abs(v0.lon - 24.7036) < 0.01, 'начална точка: Хисаря');
   await page.waitForFunction(() => { const c = window.__gpxk.map.cache; let ok = 0; c.forEach(t => { if (t.ok) ok++; }); return ok > 3; }, null, { timeout: 20000 }).then(() => check(true, 'плочките на сателита се зареждат'), () => check(false, 'плочките на сателита се зареждат'));
@@ -1088,7 +1090,7 @@ function barFits() {
   const ver = (verText.match(/^\d+\.\d+\.\d+/) || [''])[0];
   check(ver === '1.2.0' && await p5.isVisible('#appVersion') && /^Версия 1\.2\.0 · \d+ \S+ \d{4}$/.test((await p5.textContent('.foot .ver')).trim()), 'дъното показва версията: ' + (await p5.textContent('.foot .ver')).trim());
   const swCache = (() => { const ctx = { importScripts: f => vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), ctx), addEventListener: () => {} }; ctx.self = ctx; vm.createContext(ctx); vm.runInContext(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8') + ';this.__c = CACHE;', ctx); return ctx.__c; })();
-  check(swCache === 'gpxk-v27-1.2.0' && swCache === 'gpxk-v27-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
+  check(swCache === 'gpxk-v28-1.2.0' && swCache === 'gpxk-v28-' + ver, 'sw.js именува кеша със същата версия: ' + swCache);
   const liveCaches = await p5.evaluate(() => navigator.serviceWorker.ready.then(() => new Promise(r => { const t0 = Date.now(); (function poll() { caches.keys().then(k => (k.length || Date.now() - t0 > 8000) ? r(k) : setTimeout(poll, 100)); })(); })));
   check(liveCaches.length === 1 && liveCaches[0] === swCache, 'в браузъра работникът е създал кеш ' + JSON.stringify(liveCaches));
   // Бутоните са неактивни, когато няма какво да изчистят.
@@ -2019,7 +2021,8 @@ function barFits() {
         const w = d.createTreeWalker(d.documentElement, NodeFilter.SHOW_TEXT);
         while (w.nextNode()) { const n = w.currentNode, e = n.parentElement; if (cyr.test(n.data) && !e.closest('script, style') && !e.hasAttribute('data-i18n')) bad.push(where(e) + ': ' + n.data.trim().slice(0, 50)); }
         const A = { title: 'title', 'aria-label': 'aria', placeholder: 'placeholder', alt: 'alt', content: 'content' };
-        d.querySelectorAll('*').forEach(e => Object.keys(A).forEach(a => { const v = e.getAttribute(a); if (v && cyr.test(v) && !e.hasAttribute('data-i18n-' + A[a])) bad.push(where(e) + ' ' + a + ': ' + v.slice(0, 50)); }));
+        // Всеки атрибут, не само подсказките: кирилица във value, data-* и т.н. няма кой да преведе - пада винаги.
+        d.querySelectorAll('*').forEach(e => Array.from(e.attributes).forEach(at => { if (cyr.test(at.value) && !(A[at.name] && e.hasAttribute('data-i18n-' + A[at.name]))) bad.push(where(e) + ' ' + at.name + ': ' + at.value.slice(0, 50)); }));
         // data-i18n сменя целия текст на елемента - вътре не бива да има други елементи.
         d.querySelectorAll('[data-i18n]').forEach(e => { if (e.children.length) bad.push(where(e) + ': data-i18n с вложени елементи'); });
         return bad;
@@ -2057,8 +2060,8 @@ function barFits() {
     await ce.addInitScript({ content: 'window.inView = ' + inView.toString() });
     const pe = await ce.newPage(); const ee = watch(pe);
     await pe.goto(url); await ready(pe);
-    const e0 = await pe.evaluate(() => ({ lang: document.documentElement.lang, code: document.querySelector('#langCode').textContent, save: document.querySelector('#bar [data-act="save"]').textContent, empty: document.querySelector('#empty b').textContent, route: document.querySelector('#routeName').value, pref: localStorage.getItem('gpxk.lang') }));
-    check(e0.lang === 'en' && e0.code === 'EN' && e0.save === 'Save' && e0.empty === 'Your route will appear here' && e0.route === 'New route' && e0.pref === null, '1.2.0: браузър на английски без избор - интерфейсът е на английски: ' + JSON.stringify(e0));
+    const e0 = await pe.evaluate(() => ({ lang: document.documentElement.lang, code: document.querySelector('#langCode').textContent, save: document.querySelector('#bar [data-act="save"]').textContent, empty: document.querySelector('#empty b').textContent, route: document.querySelector('#routeName').value, title: document.title, pref: localStorage.getItem('gpxk.lang') }));
+    check(e0.lang === 'en' && e0.code === 'EN' && e0.save === 'Save' && e0.empty === 'Your route will appear here' && e0.route === 'New route' && e0.title === 'New route · CX Tracks' && e0.pref === null, '1.2.0: браузър на английски без избор - интерфейсът е на английски: ' + JSON.stringify(e0));
     const scan0 = await pe.evaluate(cyrScan);
     check(!scan0.length, '1.2.0, en: празната страница е без нито един кирилски надпис' + (scan0.length ? ': ' + scan0.slice(0, 10).join(' | ') : ''));
     await pe.click('#empty [data-act="add-tracks"]');

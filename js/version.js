@@ -3,4 +3,4 @@
    страницата и кешът не могат да се разминат. Вдига се при всяка промяна, която стига до потребителя. */
 var GPXK_VERSION = '1.2.0';
 var GPXK_DATE = '2026-10-03';
-var GPXK_CACHE = 'gpxk-v27-' + GPXK_VERSION;
+var GPXK_CACHE = 'gpxk-v28-' + GPXK_VERSION;
