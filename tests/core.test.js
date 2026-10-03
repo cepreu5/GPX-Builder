@@ -476,3 +476,75 @@ console.log('общ участък OK');
   assert.ok(gl.pts.length < 10, 'права през 20 м: ' + gl.pts.length + ' от 201');
   console.log('smoothWalk: OK (' + pts.length + ' → изглаждане ' + side.length + ', гъсти ' + dense.length + ', двете ' + both.length + ')');
 })();
+
+// 1.3.0: излишни пръстени, изтриване на разклонение и на участък.
+(function () {
+  var MPDL = 6371008.8 * Math.PI / 180, KX = Math.cos(42.5 * Math.PI / 180) * MPDL;
+  function lonAt(d) { return 24.70 + d / KX; }
+  function latAt(m) { return 42.5 + m / MPDL; }
+  // X на изток (~4.9 км); Y слиза от север и свършва на 18 м над X при км 1,0; W идва от юг и свършва
+  // върху X при км 1,025 (25 м по X от Y - двата пръстена са различни, но близо); V пресича X при км 2,5.
+  function mk() {
+    return [
+      { id: 'X', pts: line(42.5, 24.70, 42.5, 24.76, 300) },
+      { id: 'Y', pts: line(latAt(300), lonAt(1000), latAt(18), lonAt(1000), 30) },
+      { id: 'W', pts: line(latAt(-300), lonAt(1025), 42.5, lonAt(1025), 30) },
+      { id: 'V', pts: line(latAt(400), lonAt(2500), latAt(-400), lonAt(2500), 60) }
+    ];
+  }
+  function ascent(g) { var up = 0; for (var i = 1; i < g.pts.length; i++) { var d = g.pts[i][2] - g.pts[i - 1][2]; if (d > 0) up += d; } return up; }
+  function byIdOf(ts) { var o = {}; ts.forEach(function (t) { o[t.id] = t; }); return o; }
+  function partsOf(r, id) { return r.byTrack[id].filter(function (s) { return s.kind === 'part'; }).map(function (s) { return [Math.round(s.a), Math.round(s.b)]; }); }
+  var ts = mk(), tb = byIdOf(ts), r = Core.analyze(ts, 20);
+  console.log('1.3.0 пръстени', r.junctions.map(function (j) { return j.branches.map(function (b) { return b.trackId; }).join('') + (j.cross ? ' (пресичане)' : ''); }));
+  assert.strictEqual(r.junctions.length, 3, 'три пръстена: Y, W и пресичането с V');
+  var red = Core.redundantJunctions(r.junctions, tb, 20);
+  console.log('1.3.0 излишни', red.map(function (x) { return x.why + ' ' + x.trackId + ' @' + Math.round(x.d) + (x.dist != null ? ' / ' + Math.round(x.dist) + ' м' : ''); }));
+  assert.strictEqual(red.length, 2, 'излишни: пресичането (без избор) и вторият от двата близки');
+  var cross = red.filter(function (x) { return x.why === 'cross'; })[0], near = red.filter(function (x) { return x.why === 'near'; })[0];
+  assert.ok(cross && cross.j.cross && Math.abs(cross.d - 2500) < 25, 'без избор: V × X при км 2,5');
+  assert.ok(near && near.trackId === 'X' && near.dist < Core.NEAR_J && Math.abs(near.dist - 25) < 6 && near.j.branches.some(function (b) { return b.trackId === 'W'; }), 'близо: вторият пръстен (W) на ~25 м по X');
+  assert.ok(!red.some(function (x) { return x.j.branches.some(function (b) { return b.trackId === 'Y'; }) && x.why === 'near'; }), 'първият от двата близки остава');
+  // Само предложение: analyze не маха нищо само.
+  assert.strictEqual(Core.analyze(mk(), 20).junctions.length, 3);
+  assert.deepStrictEqual(partsOf(r, 'X').length, 3, 'X: три участъка (реже се при 1000 и при 2500) ' + JSON.stringify(partsOf(r, 'X')));
+
+  // Маршрут направо по X през пресичането: две съседни части се сливат в една, дължината и изкачването са същите.
+  var xs = r.byTrack.X.filter(function (s) { return s.kind === 'part'; });
+  var route = { items: [{ type: 'part', trackId: 'X', a: xs[1].a, b: xs[1].b, rev: false }, { type: 'part', trackId: 'X', a: xs[2].a, b: xs[2].b, rev: false }], forks: [] };
+  var g0 = Core.routeGeometry(route, tb, r), fk = Core.routeForks(g0, r.junctions, 20, tb).filter(function (f) { return f.j === cross.j; })[0];
+  assert.ok(fk && fk.head === 0, 'маршрутът минава през пресичането');
+  var drop = [Core.junctionPlace(cross.j)];
+  Core.dropJunction(route, fk, cross.j, 20);
+  var r1 = Core.analyze(ts, 20, { drop: drop });
+  assert.strictEqual(r1.junctions.length, 2, 'изтритият пръстен го няма');
+  assert.ok(!r1.junctions.some(function (j) { return U.hav(j.lat, j.lon, cross.j.lat, cross.j.lon) < 30; }), 'и при ново пресмятане не се връща');
+  assert.deepStrictEqual(partsOf(r1, 'X'), [[0, Math.round(xs[0].b)], [Math.round(xs[1].a), Math.round(xs[2].b)]], 'X: участъците от двете страни се сливат в един');
+  assert.strictEqual(partsOf(r1, 'V').length, 1, 'V се чете цял');
+  assert.strictEqual(route.items.length, 1, 'двете части на маршрута стават една');
+  var g1 = Core.routeGeometry(route, tb, r1);
+  assert.ok(Math.abs(g1.len - g0.len) < 1e-6, 'дължината не се мести: ' + g0.len + ' → ' + g1.len);
+  assert.ok(Math.abs(ascent(g1) - ascent(g0)) < 1e-6, 'изкачването не се мести: ' + ascent(g0) + ' → ' + ascent(g1));
+  var sumX = function (rr) { return rr.byTrack.X.filter(function (s) { return s.kind === 'part'; }).reduce(function (s, x) { return s + x.len; }, 0); };
+  assert.ok(Math.abs(sumX(r1) - sumX(r)) < 1e-6, 'сборът на участъците на X е същият');
+
+  // Маршрутът сменя клона при пресичането (X → V на юг): след изтриването продължава направо по X.
+  var vs = r.byTrack.V.filter(function (s) { return s.kind === 'part'; });
+  var r2 = { items: [{ type: 'part', trackId: 'X', a: xs[1].a, b: xs[1].b, rev: false }, { type: 'part', trackId: 'V', a: vs[1].a, b: vs[1].b, rev: false }], forks: [{ at: [cross.j.lat, cross.j.lon], alts: [] }] };
+  var gs = Core.routeGeometry(r2, tb, r), fs = Core.routeForks(gs, r.junctions, 20, tb).filter(function (f) { return f.j === cross.j; })[0];
+  assert.ok(fs && fs.chosen >= 0 && r.junctions[r.junctions.indexOf(cross.j)].branches[fs.chosen].trackId === 'V', 'маршрутът е избрал V');
+  Core.dropJunction(r2, fs, cross.j, 20);
+  assert.deepStrictEqual(r2.items.map(function (it) { return [it.trackId, Math.round(it.a), Math.round(it.b)]; }), [['X', Math.round(xs[1].a), Math.round(xs[2].b)]], 'смяната на клона отпада: направо по X до края');
+  assert.strictEqual(r2.forks.length, 0, 'паметта за избора в точката отпада');
+
+  // Изтрит участък (t.dels): не е част, не се чертае като изрязан, частта върху него е невалидна.
+  var td = mk(); td[0].dels = [{ a: 3000, b: 3500 }];
+  var rd = Core.analyze(td, 20);
+  assert.ok(rd.byTrack.X.some(function (s) { return s.kind === 'del' && s.a === 3000 && s.b === 3500; }), 'изтритият участък е отбелязан');
+  assert.ok(!rd.byTrack.X.some(function (s) { return s.kind === 'cut'; }), 'не е изрязване');
+  assert.ok(!rd.parts.some(function (s) { return s.trackId === 'X' && Core.overlap(s.a, s.b, 3000, 3500) > 0; }), 'никоя част не минава през него');
+  assert.ok(Core.invalidShare({ trackId: 'X', a: 2600, b: 4000 }, rd).bad, 'част през изтрития участък е невалидна');
+  var tr = Core.trimItems([{ type: 'part', trackId: 'X', a: 2500, b: 4900 }], 'X', 3000, 3500);
+  assert.deepStrictEqual(tr.map(function (it) { return [it.a, it.b]; }), [[2500, 3000], [3500, 4900]], 'маршрутът губи изтритата отсечка - две части');
+  console.log('1.3.0 разклонения: OK');
+})();
